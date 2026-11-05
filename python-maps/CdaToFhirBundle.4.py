@@ -87,6 +87,8 @@ def CdaToFhirBundle(cda, fhir_bundle):
         if code_code is not None:
             if code_code == '11369-6':
                 CdaEimpfToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle)
+        if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_code,'translation') if v1.code == '18748-4']):
+            CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle)
 
 def CdaHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle):
     cda_title = cda.title
@@ -107,6 +109,14 @@ def CdaHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle)
         fhir_composition_terminologyDate_dateTime = malac.models.fhir.r4.dateTime()
         fhir_composition_terminologyDate_extension.valueDateTime = fhir_composition_terminologyDate_dateTime
         TSDate(cda_terminologyDate, fhir_composition_terminologyDate_dateTime)
+    cda_formatCode = cda.formatCode
+    if cda_formatCode is not None:
+        fhir_composition_formatCode_extension = malac.models.fhir.r4.Extension()
+        fhir_composition.extension.append(fhir_composition_formatCode_extension)
+        fhir_composition_formatCode_extension.url = 'http://hl7.at/fhir/HL7ATCoreProfiles/4.0.1/StructureDefinition/at-core-ext-composition-formatcode'
+        fhir_composition_formatCode_codeableConcept = malac.models.fhir.r4.CodeableConcept()
+        fhir_composition_formatCode_extension.valueCodeableConcept = fhir_composition_formatCode_codeableConcept
+        CDCodeableConcept(cda_formatCode, fhir_composition_formatCode_codeableConcept)
     if cda.practiceSettingCode is not None:
         fhir_composition.category.append(malac.models.fhir.r4.CodeableConcept())
         CDCodeableConcept(cda.practiceSettingCode, fhir_composition.category[-1])
@@ -1026,6 +1036,9 @@ def CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_pat
 
 def CdaAnnotationSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+    if cda_section.code is not None:
+        fhir_section.code = malac.models.fhir.r4.CodeableConcept()
+        transform_default(cda_section.code, fhir_section.code)
     if fhir_section.code is None:
         fhir_section.code = malac.models.fhir.r4.CodeableConcept()
     fhir_section_code = fhir_section.code
@@ -1214,6 +1227,26 @@ def CdaParticipantToFhirPractitionerRole(cda_participant, fhir_practitionerRole,
                 fhir_practitionerRole_organization_reference = malac.models.fhir.r4.Reference()
                 fhir_practitionerRole.organization = fhir_practitionerRole_organization_reference
                 fhir_practitionerRole_organization_reference.display = string(value=fhirpath.single(fhirpath_utils.get(cda_participant_role_scoping_entity_desc,'valueOf_',strip=True)))
+
+def CdaNarrativeTextToFhirString(cda_act, cda_section, target_string):
+    cda_act_text = cda_act.text
+    if cda_act_text is not None:
+        cda_act_text_reference = cda_act_text.reference
+        if cda_act_text_reference is not None:
+            cda_section_text = cda_section.text
+            if cda_section_text is not None:
+                cda_act_text_reference_value = cda_act_text_reference.value
+                if cda_act_text_reference_value is not None:
+                    fhir_narrative = malac.models.fhir.r4.Narrative()
+                    fhir_narrative_div = utils.strucdoctext2html(malac.models.fhir.r4, cda_section_text)
+                    fhir_narrative.div = fhir_narrative_div
+                    fhir_string = malac.models.fhir.r4.string()
+                    fhir_string = string(value=str(fhir_narrative_div))
+                    fhir_substring_01 = malac.models.fhir.r4.string()
+                    fhir_substring_01 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_string,fhirpath_utils.indexof(fhir_string, fhirpath_utils.substring(cda_act_text_reference_value,[1],[])),[])))
+                    fhir_substring_02 = malac.models.fhir.r4.string()
+                    fhir_substring_02 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_substring_01,fhirpath_utils.add(fhirpath_utils.indexof(fhir_substring_01, ['>']), [1]),[])))
+                    target_string.value = fhirpath.single(fhirpath_utils.substring(fhir_substring_02,[0],fhirpath_utils.indexof(fhir_substring_02, ['<'])))
 
 def CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     cda_section_title = cda_section.title
@@ -84361,7 +84394,7 @@ def CECodeableConcept(src, tgt):
             tgt_coding = malac.models.fhir.r4.Coding()
             tgt.coding.append(tgt_coding)
             tgt_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/data-absent-reason')
-            tgt_coding.code = string(value=translate_single('v3-NullFlavor-2-data-absent-reason', code=(cda_manufacturedMaterial_code_nullFlavor if isinstance(cda_manufacturedMaterial_code_nullFlavor, str) else cda_manufacturedMaterial_code_nullFlavor.value), out_type='code'))
+            tgt_coding.code = string(value=translate_single('v3-NullFlavor-2-data-absent-reason', code=(src_nullFlavor if isinstance(src_nullFlavor, str) else src_nullFlavor.value), out_type='code'))
     for translation in src.translation or []:
         coding = malac.models.fhir.r4.Coding()
         tgt.coding.append(coding)
@@ -84560,99 +84593,103 @@ def CdaAdressCompilationToFhirAustrianAddress(cda_address, fhir_address):
         fhir_address.type_ = string(value='physical')
     if fhirpath.single(fhirpath_utils.equals([cda_address.use], '==', ['PST'])):
         fhir_address.type_ = string(value='postal')
-    cda_address_item = cda_address
-    if cda_address_item is not None:
-        for cda_postalCode in cda_address_item.postalCode or []:
-            fhir_address.postalCode = string(value=fhirpath.single(fhirpath_utils.get(cda_postalCode,'valueOf_',strip=True)))
-        for cda_city in cda_address_item.city or []:
-            fhir_address.city = string(value=fhirpath.single(fhirpath_utils.get(cda_city,'valueOf_',strip=True)))
-        for cda_state in cda_address_item.state or []:
-            fhir_address.state = string(value=fhirpath.single(fhirpath_utils.get(cda_state,'valueOf_',strip=True)))
-        for cda_country in cda_address_item.country or []:
-            fhir_address.country = string(value=fhirpath.single(fhirpath_utils.get(cda_country,'valueOf_',strip=True)))
-    if cda_address.streetName and cda_address.houseNumber and cda_address.additionalLocator:
-        fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetName','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'houseNumber','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'additionalLocator','valueOf_',strip=True))]
-        for v2 in fhir_address_line:
+    if fhirpath_utils.get(cda_address,'valueOf_',strip=True):
+        for v2 in [string(value=v1) for v1 in fhirpath_utils.get(cda_address,'valueOf_',strip=True)]:
             fhir_address.line.append(v2)
+    if fhirpath_utils.descendants([cda_address]):
         cda_address_item = cda_address
         if cda_address_item is not None:
-            for cda_address_item_streetName in cda_address_item.streetName or []:
-                extension = []
-                for _fhir_address_line in fhir_address_line:
-                    _extension = malac.models.fhir.r4.Extension()
-                    _fhir_address_line.extension.append(_extension)
-                    extension.append(_extension)
-                for _extension in extension:
-                    _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName'
-                for _extension in extension:
-                    _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_streetName,'valueOf_',strip=True)))
-            for cda_address_item_houseNumber in cda_address_item.houseNumber or []:
-                extension = []
-                for _fhir_address_line in fhir_address_line:
-                    _extension = malac.models.fhir.r4.Extension()
-                    _fhir_address_line.extension.append(_extension)
-                    extension.append(_extension)
-                for _extension in extension:
-                    _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber'
-                for _extension in extension:
-                    _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_houseNumber,'valueOf_',strip=True)))
-            for cda_address_item_additionalLocator in cda_address_item.additionalLocator or []:
-                if cda_address_item.additionalLocator:
+            for cda_postalCode in cda_address_item.postalCode or []:
+                fhir_address.postalCode = string(value=fhirpath.single(fhirpath_utils.get(cda_postalCode,'valueOf_',strip=True)))
+            for cda_city in cda_address_item.city or []:
+                fhir_address.city = string(value=fhirpath.single(fhirpath_utils.get(cda_city,'valueOf_',strip=True)))
+            for cda_state in cda_address_item.state or []:
+                fhir_address.state = string(value=fhirpath.single(fhirpath_utils.get(cda_state,'valueOf_',strip=True)))
+            for cda_country in cda_address_item.country or []:
+                fhir_address.country = string(value=fhirpath.single(fhirpath_utils.get(cda_country,'valueOf_',strip=True)))
+        if cda_address.streetName and cda_address.houseNumber and cda_address.additionalLocator:
+            fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetName','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'houseNumber','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'additionalLocator','valueOf_',strip=True))]
+            for v2 in fhir_address_line:
+                fhir_address.line.append(v2)
+            cda_address_item = cda_address
+            if cda_address_item is not None:
+                for cda_address_item_streetName in cda_address_item.streetName or []:
                     extension = []
                     for _fhir_address_line in fhir_address_line:
                         _extension = malac.models.fhir.r4.Extension()
                         _fhir_address_line.extension.append(_extension)
                         extension.append(_extension)
                     for _extension in extension:
-                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator'
+                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName'
                     for _extension in extension:
-                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_additionalLocator,'valueOf_',strip=True)))
-    if cda_address.streetName and cda_address.houseNumber and not cda_address.additionalLocator:
-        fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetName','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'houseNumber','valueOf_',strip=True))]
-        for v2 in fhir_address_line:
-            fhir_address.line.append(v2)
-        cda_address_item = cda_address
-        if cda_address_item is not None:
-            for cda_address_item_streetName in cda_address_item.streetName or []:
-                extension = []
-                for _fhir_address_line in fhir_address_line:
-                    _extension = malac.models.fhir.r4.Extension()
-                    _fhir_address_line.extension.append(_extension)
-                    extension.append(_extension)
-                for _extension in extension:
-                    _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName'
-                for _extension in extension:
-                    _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_streetName,'valueOf_',strip=True)))
-            for cda_address_item_houseNumber in cda_address_item.houseNumber or []:
-                extension = []
-                for _fhir_address_line in fhir_address_line:
-                    _extension = malac.models.fhir.r4.Extension()
-                    _fhir_address_line.extension.append(_extension)
-                    extension.append(_extension)
-                for _extension in extension:
-                    _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber'
-                for _extension in extension:
-                    _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_houseNumber,'valueOf_',strip=True)))
-    if cda_address.streetAddressLine and cda_address.additionalLocator:
-        fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetAddressLine','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'additionalLocator','valueOf_',strip=True))]
-        for v2 in fhir_address_line:
-            fhir_address.line.append(v2)
-        cda_address_item = cda_address
-        if cda_address_item is not None:
-            for cda_address_item_additionalLocator in cda_address_item.additionalLocator or []:
-                if cda_address_item.additionalLocator:
+                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_streetName,'valueOf_',strip=True)))
+                for cda_address_item_houseNumber in cda_address_item.houseNumber or []:
                     extension = []
                     for _fhir_address_line in fhir_address_line:
                         _extension = malac.models.fhir.r4.Extension()
                         _fhir_address_line.extension.append(_extension)
                         extension.append(_extension)
                     for _extension in extension:
-                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator'
+                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber'
                     for _extension in extension:
-                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_additionalLocator,'valueOf_',strip=True)))
-    if cda_address.streetAddressLine and not cda_address.additionalLocator:
-        for v2 in [string(value=v1) for v1 in fhirpath_utils.get(cda_address,'streetAddressLine','valueOf_',strip=True)]:
-            fhir_address.line.append(v2)
+                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_houseNumber,'valueOf_',strip=True)))
+                for cda_address_item_additionalLocator in cda_address_item.additionalLocator or []:
+                    if cda_address_item.additionalLocator:
+                        extension = []
+                        for _fhir_address_line in fhir_address_line:
+                            _extension = malac.models.fhir.r4.Extension()
+                            _fhir_address_line.extension.append(_extension)
+                            extension.append(_extension)
+                        for _extension in extension:
+                            _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator'
+                        for _extension in extension:
+                            _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_additionalLocator,'valueOf_',strip=True)))
+        if cda_address.streetName and cda_address.houseNumber and not cda_address.additionalLocator:
+            fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetName','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'houseNumber','valueOf_',strip=True))]
+            for v2 in fhir_address_line:
+                fhir_address.line.append(v2)
+            cda_address_item = cda_address
+            if cda_address_item is not None:
+                for cda_address_item_streetName in cda_address_item.streetName or []:
+                    extension = []
+                    for _fhir_address_line in fhir_address_line:
+                        _extension = malac.models.fhir.r4.Extension()
+                        _fhir_address_line.extension.append(_extension)
+                        extension.append(_extension)
+                    for _extension in extension:
+                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName'
+                    for _extension in extension:
+                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_streetName,'valueOf_',strip=True)))
+                for cda_address_item_houseNumber in cda_address_item.houseNumber or []:
+                    extension = []
+                    for _fhir_address_line in fhir_address_line:
+                        _extension = malac.models.fhir.r4.Extension()
+                        _fhir_address_line.extension.append(_extension)
+                        extension.append(_extension)
+                    for _extension in extension:
+                        _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber'
+                    for _extension in extension:
+                        _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_houseNumber,'valueOf_',strip=True)))
+        if cda_address.streetAddressLine and cda_address.additionalLocator:
+            fhir_address_line = [string(value=v1) for v1 in fhirpath_utils.add(fhirpath_utils.get(cda_address,'streetAddressLine','valueOf_',strip=True), [' '], fhirpath_utils.get(cda_address,'additionalLocator','valueOf_',strip=True))]
+            for v2 in fhir_address_line:
+                fhir_address.line.append(v2)
+            cda_address_item = cda_address
+            if cda_address_item is not None:
+                for cda_address_item_additionalLocator in cda_address_item.additionalLocator or []:
+                    if cda_address_item.additionalLocator:
+                        extension = []
+                        for _fhir_address_line in fhir_address_line:
+                            _extension = malac.models.fhir.r4.Extension()
+                            _fhir_address_line.extension.append(_extension)
+                            extension.append(_extension)
+                        for _extension in extension:
+                            _extension.url = 'http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator'
+                        for _extension in extension:
+                            _extension.valueString = string(value=fhirpath.single(fhirpath_utils.get(cda_address_item_additionalLocator,'valueOf_',strip=True)))
+        if cda_address.streetAddressLine and not cda_address.additionalLocator:
+            for v2 in [string(value=v1) for v1 in fhirpath_utils.get(cda_address,'streetAddressLine','valueOf_',strip=True)]:
+                fhir_address.line.append(v2)
 
 def TELContactPoint(src, tgt):
     Any(src, tgt)
@@ -85916,10 +85953,40 @@ def CdaLaboratoryObservationValueToFhirObservationValue(cda_laboratory_observati
             fhir_observation.valueQuantity = fhir_observation_value
             INTQuantity(cda_observation_value, fhir_observation_value)
     for cda_observation_value in cda_laboratory_observation.value or []:
-        if type(cda_observation_value) is malac.models.cda.at_ext.TS:
-            fhir_observation_value = malac.models.fhir.r4.dateTime()
-            fhir_observation.valueDateTime = fhir_observation_value
-            TSDateTime(cda_observation_value, fhir_observation_value)
+        if type(cda_observation_value) is malac.models.cda.at_ext.IVL_INT:
+            if cda_observation_value.value is not None:
+                fhir_observation_value = malac.models.fhir.r4.Quantity()
+                fhir_observation.valueQuantity = fhir_observation_value
+                INTQuantity(cda_observation_value, fhir_observation_value)
+            if cda_observation_value.value is None:
+                fhir_observation_value = malac.models.fhir.r4.Range()
+                fhir_observation.valueRange = fhir_observation_value
+                IVL_INTRange(cda_observation_value, fhir_observation_value)
+    for cda_observation_value in cda_laboratory_observation.value or []:
+        if type(cda_observation_value) is malac.models.cda.at_ext.BL:
+            fhir_observation_value = malac.models.fhir.r4.CodeableConcept()
+            fhir_observation.valueCodeableConcept = fhir_observation_value
+            fhir_observation_value_coding = malac.models.fhir.r4.Coding()
+            fhir_observation_value.coding.append(fhir_observation_value_coding)
+            cda_observation_value_attribute = cda_observation_value.value
+            if cda_observation_value_attribute is not None:
+                if cda_observation_value_attribute:
+                    fhir_observation_value.text = string(value=str(getattr(cda_observation_value_attribute, 'value', cda_observation_value_attribute if cda_observation_value_attribute is not None else '')))
+                    fhir_observation_value_coding.system = uri(value='http://snomed.info/sct')
+                    fhir_observation_value_coding.code = string(value='373066001')
+                    fhir_observation_value_coding.display = string(value='Yes')
+            cda_observation_value_attribute = cda_observation_value.value
+            if cda_observation_value_attribute is not None:
+                if not cda_observation_value_attribute:
+                    fhir_observation_value.text = string(value=str(getattr(cda_observation_value_attribute, 'value', cda_observation_value_attribute if cda_observation_value_attribute is not None else '')))
+                    fhir_observation_value_coding.system = uri(value='http://snomed.info/sct')
+                    fhir_observation_value_coding.code = string(value='373067005')
+                    fhir_observation_value_coding.display = string(value='No')
+    for cda_observation_value in cda_laboratory_observation.value or []:
+        if type(cda_observation_value) is malac.models.cda.at_ext.ST:
+            fhir_observation_value = malac.models.fhir.r4.string()
+            fhir_observation.valueString = fhir_observation_value
+            STstring(cda_observation_value, fhir_observation_value)
     for cda_observation_value in cda_laboratory_observation.value or []:
         if type(cda_observation_value) is malac.models.cda.at_ext.CV:
             fhir_observation_value = malac.models.fhir.r4.CodeableConcept()
@@ -85929,6 +85996,11 @@ def CdaLaboratoryObservationValueToFhirObservationValue(cda_laboratory_observati
             fhir_observation_value_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/v3-NullFlavor')
             fhir_observation_value_coding.code = string(value='OTH')
             CVCodeableConcept(cda_observation_value, fhir_observation_value)
+    for cda_observation_value in cda_laboratory_observation.value or []:
+        if type(cda_observation_value) is malac.models.cda.at_ext.TS:
+            fhir_observation_value = malac.models.fhir.r4.dateTime()
+            fhir_observation.valueDateTime = fhir_observation_value
+            TSDateTime(cda_observation_value, fhir_observation_value)
     if not [v1 for v1 in fhirpath_utils.get(cda_laboratory_observation,'value') if fhirpath_utils.bool_and(fhirpath_utils.bool_or(fhirpath_utils.equals(fhirpath_utils.get(v1,'code'), '==', ['255599008']), fhirpath_utils.equals(fhirpath_utils.get(v1,'code'), '==', ['281268007'])), fhirpath_utils.equals(fhirpath_utils.get(v1,'codeSystem'), '==', ['2.16.840.1.113883.6.96'])) == [True]]:
         for cda_observation_value in cda_laboratory_observation.value or []:
             if type(cda_observation_value) is malac.models.cda.at_ext.CD:
@@ -85992,21 +86064,6 @@ def CdaLaboratoryObservationValueToFhirObservationValue(cda_laboratory_observati
             fhir_observation_dataAbsentReason_coding_2 = malac.models.fhir.r4.Coding()
             fhir_observation_dataAbsentReason.coding.append(fhir_observation_dataAbsentReason_coding_2)
             CDCoding(cda_laboratory_observation_value, fhir_observation_dataAbsentReason_coding_2)
-    for cda_observation_value in cda_laboratory_observation.value or []:
-        if type(cda_observation_value) is malac.models.cda.at_ext.ST:
-            fhir_observation_value = malac.models.fhir.r4.string()
-            fhir_observation.valueString = fhir_observation_value
-            STstring(cda_observation_value, fhir_observation_value)
-    for cda_observation_value in cda_laboratory_observation.value or []:
-        if type(cda_observation_value) is malac.models.cda.at_ext.IVL_INT:
-            if cda_observation_value.value is not None:
-                fhir_observation_value = malac.models.fhir.r4.Quantity()
-                fhir_observation.valueQuantity = fhir_observation_value
-                INTQuantity(cda_observation_value, fhir_observation_value)
-            if cda_observation_value.value is None:
-                fhir_observation_value = malac.models.fhir.r4.Range()
-                fhir_observation.valueRange = fhir_observation_value
-                IVL_INTRange(cda_observation_value, fhir_observation_value)
     for cda_observation_value in cda_laboratory_observation.value or []:
         if type(cda_observation_value) is malac.models.cda.at_ext.RTO:
             fhir_observation_value = malac.models.fhir.r4.Ratio()
@@ -86713,24 +86770,10 @@ def CdaEimpfSubstanceAdministrationToFhirImmunizationRecommendation(cda_section,
             if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_substanceAdministration_entryRelationship,'act','templateId') if v1.root == '1.2.40.0.34.6.0.11.3.17']):
                 cda_act = cda_substanceAdministration_entryRelationship.act
                 if cda_act is not None:
-                    cda_act_text = cda_act.text
-                    if cda_act_text is not None:
-                        cda_act_text_reference = cda_act_text.reference
-                        if cda_act_text_reference is not None:
-                            cda_section_text = cda_section.text
-                            if cda_section_text is not None:
-                                cda_act_text_reference_value = cda_act_text_reference.value
-                                if cda_act_text_reference_value is not None:
-                                    fhir_narrative = malac.models.fhir.r4.Narrative()
-                                    fhir_narrative_div = utils.strucdoctext2html(malac.models.fhir.r4, cda_section_text)
-                                    fhir_narrative.div = fhir_narrative_div
-                                    fhir_string = malac.models.fhir.r4.string()
-                                    fhir_string = string(value=str(fhir_narrative_div))
-                                    fhir_substring_01 = malac.models.fhir.r4.string()
-                                    fhir_substring_01 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_string,fhirpath_utils.indexof(fhir_string, fhirpath_utils.substring(cda_act_text_reference_value,[1],[])),[])))
-                                    fhir_substring_02 = malac.models.fhir.r4.string()
-                                    fhir_substring_02 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_substring_01,fhirpath_utils.add(fhirpath_utils.indexof(fhir_substring_01, ['>']), [1]),[])))
-                                    fhir_immunizationRecommendation_recommendation.description = string(value=fhirpath.single(fhirpath_utils.substring(fhir_substring_02,[0],fhirpath_utils.indexof(fhir_substring_02, ['<']))))
+                    if fhir_immunizationRecommendation_recommendation.description is None:
+                        fhir_immunizationRecommendation_recommendation.description = malac.models.fhir.r4.string()
+                    fhir_description = fhir_immunizationRecommendation_recommendation.description
+                    CdaNarrativeTextToFhirString(cda_act, cda_section, fhir_description)
         for cda_substanceAdministration_reference in cda_substanceAdministration.reference or []:
             if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_substanceAdministration_reference,'externalDocument','templateId') if v1.root == '1.2.40.0.34.6.0.11.3.14']):
                 cda_substanceAdministration_reference_externalDocument = cda_substanceAdministration_reference.externalDocument
@@ -86996,9 +87039,10 @@ def CdaPerformerToFhirProvenance(cda_performer, fhir_provenance, fhir_practition
 def CdaAuthorPersonToFhirProvenance(cda_author, fhir_provenance, fhir_practitionerRole, fhir_bundle):
     cda_participant_time = cda_author.time
     if cda_participant_time is not None:
-        fhir_provenance_occurred = malac.models.fhir.r4.dateTime()
-        fhir_provenance.occurredDateTime = fhir_provenance_occurred
-        TSDateTime(cda_participant_time, fhir_provenance_occurred)
+        if cda_participant_time.nullFlavor is None:
+            fhir_provenance_occurred = malac.models.fhir.r4.dateTime()
+            fhir_provenance.occurredDateTime = fhir_provenance_occurred
+            TSDateTime(cda_participant_time, fhir_provenance_occurred)
     if fhir_provenance.recorded is None:
         fhir_provenance.recorded = malac.models.fhir.r4.instant()
     fhir_provenance_recorded = fhir_provenance.recorded
@@ -87029,9 +87073,10 @@ def CdaAuthorPersonToFhirProvenance(cda_author, fhir_provenance, fhir_practition
 def CdaAuthorDeviceToFhirProvenance(cda_author, fhir_provenance, fhir_bundle):
     cda_participant_time = cda_author.time
     if cda_participant_time is not None:
-        fhir_provenance_occurred = malac.models.fhir.r4.dateTime()
-        fhir_provenance.occurredDateTime = fhir_provenance_occurred
-        TSDateTime(cda_participant_time, fhir_provenance_occurred)
+        if cda_participant_time.nullFlavor is None:
+            fhir_provenance_occurred = malac.models.fhir.r4.dateTime()
+            fhir_provenance.occurredDateTime = fhir_provenance_occurred
+            TSDateTime(cda_participant_time, fhir_provenance_occurred)
     if fhir_provenance.recorded is None:
         fhir_provenance.recorded = malac.models.fhir.r4.instant()
     fhir_provenance_recorded = fhir_provenance.recorded
@@ -87062,6 +87107,78 @@ def CdaAuthorDeviceToFhirProvenance(cda_author, fhir_provenance, fhir_bundle):
     fhir_provenance_agent_who_reference.reference = string(value=('urn:uuid:' + fhir_device_id.value))
     fhir_provenance_agent_who_reference.type_ = uri(value='Device')
     CdaAuthorToFhirDevice(cda_author, fhir_device, fhir_bundle)
+
+def CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle):
+    if fhir_bundle.meta is None:
+        fhir_bundle.meta = malac.models.fhir.r4.Meta()
+    fhir_bundle_meta = fhir_bundle.meta
+    fhir_bundle_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/BundleReportEuImaging'))
+    fhir_bundle_entry_1 = malac.models.fhir.r4.Bundle_Entry()
+    fhir_bundle.entry.append(fhir_bundle_entry_1)
+    fhir_diagnosticReport = malac.models.fhir.r4.DiagnosticReport()
+    fhir_bundle_entry_1.resource = malac.models.fhir.r4.ResourceContainer(DiagnosticReport=fhir_diagnosticReport)
+    fhir_diagnosticReport_id = string(value=str(uuid.uuid4()))
+    fhir_diagnosticReport.id = fhir_diagnosticReport_id
+    fhir_bundle_entry_1.fullUrl = uri(value=('urn:uuid:' + fhir_diagnosticReport_id.value))
+    if fhir_composition.id is None:
+        fhir_composition.id = malac.models.fhir.r4.string()
+    fhir_composition_id = fhir_composition.id
+    fhir_diagnosticReport_extension = malac.models.fhir.r4.Extension()
+    fhir_diagnosticReport.extension.append(fhir_diagnosticReport_extension)
+    fhir_diagnosticReport_extension.url = 'http://hl7.org/fhir/5.0/StructureDefinition/extension-DiagnosticReport.composition'
+    fhir_diagnosticReport_composition_reference = malac.models.fhir.r4.Reference()
+    fhir_diagnosticReport_extension.valueReference = fhir_diagnosticReport_composition_reference
+    fhir_diagnosticReport_composition_reference.reference = string(value=('urn:uuid:' + fhir_composition_id.value))
+    fhir_diagnosticReport_composition_reference.type_ = uri(value='Composition')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_diagnosticReport_subject_reference = malac.models.fhir.r4.Reference()
+    fhir_diagnosticReport.subject = fhir_diagnosticReport_subject_reference
+    fhir_diagnosticReport_subject_reference.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_diagnosticReport_subject_reference.type_ = uri(value='Patient')
+    CdaImagingHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle)
+    CdaImagingHeaderToFhirDiagnosticReport(cda, fhir_diagnosticReport)
+    CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhir_diagnosticReport)
+    cda_component = cda.component
+    if cda_component is not None:
+        cda_structuredBody = cda_component.structuredBody
+        if cda_structuredBody is not None:
+            CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle)
+
+def CdaImagingHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle):
+    CdaHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle)
+    if fhir_composition.meta is None:
+        fhir_composition.meta = malac.models.fhir.r4.Meta()
+    fhir_composition_meta = fhir_composition.meta
+    fhir_composition_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/CompositionEuImaging'))
+
+def CdaImagingHeaderToFhirDiagnosticReport(cda, fhir_diagnosticReport):
+    if fhir_diagnosticReport.meta is None:
+        fhir_diagnosticReport.meta = malac.models.fhir.r4.Meta()
+    fhir_diagnosticReport_meta = fhir_diagnosticReport.meta
+    fhir_diagnosticReport_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/DiagnosticReportEuImaging'))
+    if cda.code is not None:
+        fhir_diagnosticReport.code = malac.models.fhir.r4.CodeableConcept()
+        transform_default(cda.code, fhir_diagnosticReport.code)
+    fhir_category_report = malac.models.fhir.r4.CodeableConcept()
+    fhir_diagnosticReport.category.append(fhir_category_report)
+    fhir_category_report_coding = malac.models.fhir.r4.Coding()
+    fhir_category_report.coding.append(fhir_category_report_coding)
+    fhir_category_report_coding.system = uri(value='http://loinc.org')
+    fhir_category_report_coding.code = string(value='85430-7')
+    fhir_category_imaging = malac.models.fhir.r4.CodeableConcept()
+    fhir_diagnosticReport.category.append(fhir_category_imaging)
+    fhir_category_imaging_coding = malac.models.fhir.r4.Coding()
+    fhir_category_imaging.coding.append(fhir_category_imaging_coding)
+    fhir_category_imaging_coding.system = uri(value='http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs')
+    fhir_category_imaging_coding.code = string(value='Medical-Imaging')
+
+def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhir_diagnosticReport):
+    CdaHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle)
+
+def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle):
+    CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_bundle)
 
 def unpack_container(resource_container):
     if resource_container is None:

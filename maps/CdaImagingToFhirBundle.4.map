@@ -138,9 +138,24 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_diagnosticReport.meta as fhir_diagnosticReport_meta,
         fhir_diagnosticReport_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/DiagnosticReportEuImaging'
         "ImagingDiagnosticReportProfile";
-    // DiagnosticReport.code
-    // DiagnosticReport.category
-    //... 
+   // DiagnosticReport.code  <-  ClinicalDocument/code
+    cda.code -> fhir_diagnosticReport.code "ImagingDiagnosticReportCode";
+
+    // DiagnosticReport.category (Slice imaging-report, fest vorgegeben)
+    cda ->
+        fhir_diagnosticReport.category = create('CodeableConcept') as fhir_category_report,
+        fhir_category_report.coding = create('Coding') as fhir_category_report_coding,
+        fhir_category_report_coding.system = 'http://loinc.org',
+        fhir_category_report_coding.code = '85430-7'
+        "ImagingDiagnosticReportCategoryReport";
+
+    // DiagnosticReport.category (Slice imaging, fest vorgegeben)
+    cda ->
+        fhir_diagnosticReport.category = create('CodeableConcept') as fhir_category_imaging,
+        fhir_category_imaging.coding = create('Coding') as fhir_category_imaging_coding,
+        fhir_category_imaging_coding.system = 'http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs',
+        fhir_category_imaging_coding.code = 'Medical-Imaging'
+        "ImagingDiagnosticReportCategoryImaging";
 }
 
 // ClinicalDocument -> generic header (recordTarget/Patient, author, custodian,
