@@ -87259,6 +87259,37 @@ def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhi
 
 def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle):
     CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_bundle)
+    for cda_component in cda_structuredBody.component or []:
+        cda_section = cda_component.section
+        if cda_section is not None:
+            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55115-0' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                fhir_section = malac.models.fhir.r4.Composition_Section()
+                fhir_composition.section.append(fhir_section)
+                CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+        cda_section = cda_component.section
+        if cda_section is not None:
+            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '18782-3' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                fhir_section = malac.models.fhir.r4.Composition_Section()
+                fhir_composition.section.append(fhir_section)
+                if fhir_section.code is None:
+                    fhir_section.code = malac.models.fhir.r4.CodeableConcept()
+                fhir_section_code = fhir_section.code
+                fhir_section_coding = malac.models.fhir.r4.Coding()
+                fhir_section_code.coding.append(fhir_section_coding)
+                fhir_section_coding.system = uri(value='http://loinc.org')
+                fhir_section_coding.code = string(value='59776-5')
+                CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+
+def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
+    CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+    cda_section_code = cda_section.code
+    if cda_section_code is not None:
+        if fhir_section.code is None:
+            fhir_section.code = malac.models.fhir.r4.CodeableConcept()
+        fhir_section_code = fhir_section.code
+        fhir_section_coding = malac.models.fhir.r4.Coding()
+        fhir_section_code.coding.append(fhir_section_coding)
+        CDCoding(cda_section_code, fhir_section_coding)
 
 def unpack_container(resource_container):
     if resource_container is None:
