@@ -203,40 +203,68 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
   // TODO ClinicalDocument/documentationOf/serviceEvent -> Procedure / ImagingStudy
   // TODO ClinicalDocument/inFulfillmentOf/order         -> ServiceRequest (basedOn) + AccessionNumber
   // So basically add every header element here that is not covered in `CdaImagingHeaderToFhirDiagnosticReport` or  `CdaImagingHeaderToFhirComposition`
-  // ClinicalDocument/documentationOf/serviceEvent -> Procedure (ProcedureEuImaging)
-  // Jede Untersuchung (serviceEvent) wird zu einer eigenen Procedure im Bundle.
-    cda.documentationOf as cda_documentationOf then {
-        cda_documentationOf.serviceEvent as cda_serviceEvent ->
-            // neue Karteikarte Procedure ins Bundle legen
-            fhir_bundle.entry as fhir_bundle_entry_procedure,
-            fhir_bundle_entry_procedure.resource = create('Procedure') as fhir_procedure,
-            fhir_procedure.id = uuid() as fhir_procedure_id,
-            fhir_bundle_entry_procedure.fullUrl = append('urn:uuid:', fhir_procedure_id),
+    // Composition.section:procedure (LOINC 55111-9) mit allen Procedures
+    // Der Abschnitt wird hier im Header-Kapitel angelegt (nicht im Body), weil er im EU-Profil
+    // Pflicht ist und seine Eintraege (Procedures) aus dem Header (serviceEvent) stammen.
+    cda where cda.documentationOf.exists() ->
+        fhir_composition.section as fhir_section_procedure,
+        fhir_section_procedure.code as fhir_section_procedure_code,
+        fhir_section_procedure_code.coding as fhir_section_procedure_coding,
+        fhir_section_procedure_coding.system = 'http://loinc.org',
+        fhir_section_procedure_coding.code = '55111-9'
+    then {
+        // Titel und Text aus dem CDA-Abschnitt "Durchgefuehrte Untersuchung" (55111-9), falls vorhanden
+        cda.component as cda_component then {
+            cda_component.structuredBody as cda_structuredBody then {
+                cda_structuredBody.component as cda_body_component then {
+                    cda_body_component.section as cda_section where (code.where(code = '55111-9' and codeSystem = '2.16.840.1.113883.6.1'))
+                        then CdaSectionToFhirSection(cda_section, fhir_section_procedure, fhir_bundle)
+                        "ImagingSectionProcedureText";
+                } "ImagingBodyComponent";
+            } "ImagingStructuredBody";
+        } "ImagingComponent";
 
-            // Profil-Etikett
-            fhir_procedure.meta as fhir_procedure_meta,
-            fhir_procedure_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/ProcedureEuImaging',
+        // ClinicalDocument/documentationOf/serviceEvent -> Procedure (ProcedureEuImaging)
+        // Jede Untersuchung (serviceEvent) wird zu einer eigenen Procedure im Bundle
+        // und als entry im Abschnitt procedure verlinkt.
+        cda.documentationOf as cda_documentationOf then {
+            cda_documentationOf.serviceEvent as cda_serviceEvent ->
+                // neue Karteikarte Procedure ins Bundle legen
+                fhir_bundle.entry as fhir_bundle_entry_procedure,
+                fhir_bundle_entry_procedure.resource = create('Procedure') as fhir_procedure,
+                fhir_procedure.id = uuid() as fhir_procedure_id,
+                fhir_bundle_entry_procedure.fullUrl = append('urn:uuid:', fhir_procedure_id),
 
-            // Status: Untersuchung ist abgeschlossen (sonst gäbe es keinen Befund)
-            fhir_procedure.status = 'completed',
+                // Profil-Etikett
+                fhir_procedure.meta as fhir_procedure_meta,
+                fhir_procedure_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/ProcedureEuImaging',
 
-            // Procedure -> Patient
-            fhir_patient.id as fhir_patient_id,
-            fhir_procedure.subject = create('Reference') as fhir_procedure_subject_reference,
-            fhir_procedure_subject_reference.reference = append('urn:uuid:', fhir_patient_id),
-            fhir_procedure_subject_reference.type = 'Patient'
+                // Status: Untersuchung ist abgeschlossen (sonst gaebe es keinen Befund)
+                fhir_procedure.status = 'completed',
 
-        then {
-            // serviceEvent/code -> Procedure.code
-            cda_serviceEvent.code -> fhir_procedure.code "ImagingProcedureCode";
+                // Procedure -> Patient
+                fhir_patient.id as fhir_patient_id,
+                fhir_procedure.subject = create('Reference') as fhir_procedure_subject_reference,
+                fhir_procedure_subject_reference.reference = append('urn:uuid:', fhir_patient_id),
+                fhir_procedure_subject_reference.type = 'Patient',
 
-            // serviceEvent/effectiveTime -> Procedure.performedPeriod
-            cda_serviceEvent.effectiveTime as cda_serviceEvent_time ->
-                fhir_procedure.performed = create('Period') as fhir_procedure_period
-                then IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
-                "ImagingProcedurePerformed";
-        } "ImagingServiceEventToProcedure";
-    } "ImagingDocumentationOfToProcedure";
+                // Abschnitt procedure -> Procedure (entry)
+                fhir_section_procedure.entry = create('Reference') as fhir_section_procedure_entry,
+                fhir_section_procedure_entry.reference = append('urn:uuid:', fhir_procedure_id),
+                fhir_section_procedure_entry.type = 'Procedure'
+
+            then {
+                // serviceEvent/code -> Procedure.code
+                cda_serviceEvent.code -> fhir_procedure.code "ImagingProcedureCode";
+
+                // serviceEvent/effectiveTime -> Procedure.performedPeriod
+                cda_serviceEvent.effectiveTime as cda_serviceEvent_time ->
+                    fhir_procedure.performed = create('Period') as fhir_procedure_period
+                    then IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
+                    "ImagingProcedurePerformed";
+            } "ImagingServiceEventToProcedure";
+        } "ImagingDocumentationOfToProcedure";
+    } "ImagingSectionProcedure";
 }
 
 
