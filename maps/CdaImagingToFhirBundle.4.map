@@ -167,8 +167,8 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_category_imaging_coding.system = 'http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs',
         fhir_category_imaging_coding.code = 'Medical-Imaging'
         "ImagingDiagnosticReportCategoryImaging";
-        
-        // ClinicalDocument/sdtc:statusCode -> DiagnosticReport.status (Fall 1: Status im CDA vorhanden)
+
+    // ClinicalDocument/sdtc:statusCode -> DiagnosticReport.status (Fall 1: Status im CDA vorhanden)
     cda.sdtcStatusCode as cda_statusCode then {
         cda_statusCode.code as cda_status_code ->
             fhir_diagnosticReport.status = translate(cda_status_code, '#cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status', 'code')
@@ -203,6 +203,40 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
   // TODO ClinicalDocument/documentationOf/serviceEvent -> Procedure / ImagingStudy
   // TODO ClinicalDocument/inFulfillmentOf/order         -> ServiceRequest (basedOn) + AccessionNumber
   // So basically add every header element here that is not covered in `CdaImagingHeaderToFhirDiagnosticReport` or  `CdaImagingHeaderToFhirComposition`
+  // ClinicalDocument/documentationOf/serviceEvent -> Procedure (ProcedureEuImaging)
+  // Jede Untersuchung (serviceEvent) wird zu einer eigenen Procedure im Bundle.
+    cda.documentationOf as cda_documentationOf then {
+        cda_documentationOf.serviceEvent as cda_serviceEvent ->
+            // neue Karteikarte Procedure ins Bundle legen
+            fhir_bundle.entry as fhir_bundle_entry_procedure,
+            fhir_bundle_entry_procedure.resource = create('Procedure') as fhir_procedure,
+            fhir_procedure.id = uuid() as fhir_procedure_id,
+            fhir_bundle_entry_procedure.fullUrl = append('urn:uuid:', fhir_procedure_id),
+
+            // Profil-Etikett
+            fhir_procedure.meta as fhir_procedure_meta,
+            fhir_procedure_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/ProcedureEuImaging',
+
+            // Status: Untersuchung ist abgeschlossen (sonst gäbe es keinen Befund)
+            fhir_procedure.status = 'completed',
+
+            // Procedure -> Patient
+            fhir_patient.id as fhir_patient_id,
+            fhir_procedure.subject = create('Reference') as fhir_procedure_subject_reference,
+            fhir_procedure_subject_reference.reference = append('urn:uuid:', fhir_patient_id),
+            fhir_procedure_subject_reference.type = 'Patient'
+
+        then {
+            // serviceEvent/code -> Procedure.code
+            cda_serviceEvent.code -> fhir_procedure.code "ImagingProcedureCode";
+
+            // serviceEvent/effectiveTime -> Procedure.performedPeriod
+            cda_serviceEvent.effectiveTime as cda_serviceEvent_time ->
+                fhir_procedure.performed = create('Period') as fhir_procedure_period
+                then IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
+                "ImagingProcedurePerformed";
+        } "ImagingServiceEventToProcedure";
+    } "ImagingDocumentationOfToProcedure";
 }
 
 

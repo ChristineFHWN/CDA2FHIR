@@ -87226,6 +87226,36 @@ def CdaImagingHeaderToFhirDiagnosticReport(cda, fhir_diagnosticReport):
 
 def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhir_diagnosticReport):
     CdaHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle)
+    for cda_documentationOf in cda.documentationOf or []:
+        cda_serviceEvent = cda_documentationOf.serviceEvent
+        if cda_serviceEvent is not None:
+            fhir_bundle_entry_procedure = malac.models.fhir.r4.Bundle_Entry()
+            fhir_bundle.entry.append(fhir_bundle_entry_procedure)
+            fhir_procedure = malac.models.fhir.r4.Procedure()
+            fhir_bundle_entry_procedure.resource = malac.models.fhir.r4.ResourceContainer(Procedure=fhir_procedure)
+            fhir_procedure_id = string(value=str(uuid.uuid4()))
+            fhir_procedure.id = fhir_procedure_id
+            fhir_bundle_entry_procedure.fullUrl = uri(value=('urn:uuid:' + fhir_procedure_id.value))
+            if fhir_procedure.meta is None:
+                fhir_procedure.meta = malac.models.fhir.r4.Meta()
+            fhir_procedure_meta = fhir_procedure.meta
+            fhir_procedure_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/ProcedureEuImaging'))
+            fhir_procedure.status = string(value='completed')
+            if fhir_patient.id is None:
+                fhir_patient.id = malac.models.fhir.r4.string()
+            fhir_patient_id = fhir_patient.id
+            fhir_procedure_subject_reference = malac.models.fhir.r4.Reference()
+            fhir_procedure.subject = fhir_procedure_subject_reference
+            fhir_procedure_subject_reference.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+            fhir_procedure_subject_reference.type_ = uri(value='Patient')
+            if cda_serviceEvent.code is not None:
+                fhir_procedure.code = malac.models.fhir.r4.CodeableConcept()
+                transform_default(cda_serviceEvent.code, fhir_procedure.code)
+            cda_serviceEvent_time = cda_serviceEvent.effectiveTime
+            if cda_serviceEvent_time is not None:
+                fhir_procedure_period = malac.models.fhir.r4.Period()
+                fhir_procedure.performedPeriod = fhir_procedure_period
+                IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
 
 def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle):
     CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_bundle)
