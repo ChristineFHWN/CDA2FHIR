@@ -84202,6 +84202,37 @@ conceptMap_as_7dimension_dict["cda-eimpf-clinicaldocument-code-2-fhir-category"]
         }
     }
 }
+
+conceptMap_as_7dimension_dict["cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status"] = {
+    "%": {
+        "%": {
+            "http://terminology.hl7.org/CodeSystem/v3-ActStatus": {
+                "http://hl7.org/fhir/diagnostic-report-status": {
+                    "active": [
+                        {
+                            "relationship": "equivalent",
+                            "concept": {
+                                "system": "http://hl7.org/fhir/diagnostic-report-status",
+                                "code": "preliminary"
+                            },
+                            "source": "cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status"
+                        }
+                    ],
+                    "nullified": [
+                        {
+                            "relationship": "equivalent",
+                            "concept": {
+                                "system": "http://hl7.org/fhir/diagnostic-report-status",
+                                "code": "entered-in-error"
+                            },
+                            "source": "cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
 def II(src, tgt):
     Any(src, tgt)
     r = src.root
@@ -87173,6 +87204,25 @@ def CdaImagingHeaderToFhirDiagnosticReport(cda, fhir_diagnosticReport):
     fhir_category_imaging.coding.append(fhir_category_imaging_coding)
     fhir_category_imaging_coding.system = uri(value='http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs')
     fhir_category_imaging_coding.code = string(value='Medical-Imaging')
+    cda_statusCode = cda.statusCode
+    if cda_statusCode is not None:
+        cda_status_code = cda_statusCode.code
+        if cda_status_code is not None:
+            fhir_diagnosticReport.status = string(value=translate_single('cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status', code=(cda_status_code if isinstance(cda_status_code, str) else cda_status_code.value), out_type='code'))
+    if not fhirpath_utils.get(cda,'sdtcStatusCode'):
+        fhir_diagnosticReport.status = string(value='final')
+    if len(cda.documentationOf) > 0:
+        cda_documentationOf = cda.documentationOf[0]
+        cda_serviceEvent = cda_documentationOf.serviceEvent
+        if cda_serviceEvent is not None:
+            cda_serviceEvent_time = cda_serviceEvent.effectiveTime
+            if cda_serviceEvent_time is not None:
+                fhir_effective_period = malac.models.fhir.r4.Period()
+                fhir_diagnosticReport.effectivePeriod = fhir_effective_period
+                IVLTSPeriod(cda_serviceEvent_time, fhir_effective_period)
+    if cda.effectiveTime is not None:
+        fhir_diagnosticReport.issued = malac.models.fhir.r4.instant()
+        TSInstant(cda.effectiveTime, fhir_diagnosticReport.issued)
 
 def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhir_diagnosticReport):
     CdaHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle)

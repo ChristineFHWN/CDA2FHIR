@@ -14,6 +14,16 @@ map "https://fhir.hl7.at/elga/cda2fhir/r4/StructureMap/at-cda-imaging-to-fhir-bu
 //
 // Naming convention for groups: CdaImaging*ToFhir*
 //
+// ____________________________________ ConceptMaps ____________________________________
+
+// Übersetzungstabelle: Dokumentstatus im CDA (sdtc:statusCode) -> DiagnosticReport.status
+conceptmap "cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status" {
+  prefix s = "http://terminology.hl7.org/CodeSystem/v3-ActStatus"
+  prefix t = "http://hl7.org/fhir/diagnostic-report-status"
+
+  s:"active" == t:"preliminary"
+  s:"nullified" == t:"entered-in-error"
+}
 
 // ____________________________________ Sources ____________________________________
 
@@ -138,7 +148,8 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_diagnosticReport.meta as fhir_diagnosticReport_meta,
         fhir_diagnosticReport_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/DiagnosticReportEuImaging'
         "ImagingDiagnosticReportProfile";
-   // DiagnosticReport.code  <-  ClinicalDocument/code
+
+   // DiagnosticReport.code  ->  ClinicalDocument/code
     cda.code -> fhir_diagnosticReport.code "ImagingDiagnosticReportCode";
 
     // DiagnosticReport.category (Slice imaging-report, fest vorgegeben)
@@ -156,6 +167,31 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_category_imaging_coding.system = 'http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs',
         fhir_category_imaging_coding.code = 'Medical-Imaging'
         "ImagingDiagnosticReportCategoryImaging";
+        
+        // ClinicalDocument/sdtc:statusCode -> DiagnosticReport.status (Fall 1: Status im CDA vorhanden)
+    cda.sdtcStatusCode as cda_statusCode then {
+        cda_statusCode.code as cda_status_code ->
+            fhir_diagnosticReport.status = translate(cda_status_code, '#cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status', 'code')
+            "ImagingDiagnosticReportStatusMapped";
+    } "ImagingDiagnosticReportStatus";
+
+    // DiagnosticReport.status (Fall 2: kein Status im CDA -> Befund ist fertig)
+    cda where cda.sdtcStatusCode.exists().not() ->
+        fhir_diagnosticReport.status = 'final'
+        "ImagingDiagnosticReportStatusFinal";
+
+    // ClinicalDocument/documentationOf/serviceEvent/effectiveTime -> DiagnosticReport.effectivePeriod
+    cda.documentationOf first as cda_documentationOf then {
+        cda_documentationOf.serviceEvent as cda_serviceEvent then {
+            cda_serviceEvent.effectiveTime as cda_serviceEvent_time ->
+                fhir_diagnosticReport.effective = create('Period') as fhir_effective_period
+                then IVLTSPeriod(cda_serviceEvent_time, fhir_effective_period)
+                "ImagingDiagnosticReportEffective";
+        } "ImagingServiceEvent";
+    } "ImagingDocumentationOf";
+
+    // ClinicalDocument/effectiveTime -> DiagnosticReport.issued
+    cda.effectiveTime -> fhir_diagnosticReport.issued "ImagingDiagnosticReportIssued";
 }
 
 // ClinicalDocument -> generic header (recordTarget/Patient, author, custodian,
