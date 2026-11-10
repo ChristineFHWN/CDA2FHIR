@@ -135,10 +135,25 @@ group CdaImagingHeaderToFhirComposition(source cda: ClinicalDocument, target fhi
         fhir_composition_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/CompositionEuImaging'
         "ImagingCompositionProfile";
 
-    // Composition.type 
-    // Composition.category 
-    // ... 
-    
+        // ClinicalDocument/code -> Composition.type (wie DiagnosticReport.code)
+    cda.code -> fhir_composition.type "ImagingCompositionType";
+
+    // Composition.category (Slice imaging-report, fest vorgegeben)
+    // Die ELGA-Kategorie (practiceSettingCode, z. B. Radiologie) bleibt zusaetzlich erhalten.
+    cda ->
+        fhir_composition.category = create('CodeableConcept') as fhir_composition_category_report,
+        fhir_composition_category_report.coding = create('Coding') as fhir_composition_category_report_coding,
+        fhir_composition_category_report_coding.system = 'http://loinc.org',
+        fhir_composition_category_report_coding.code = '85430-7'
+        "ImagingCompositionCategoryReport";
+
+    // Composition.category (Slice imaging, fest vorgegeben)
+    cda ->
+        fhir_composition.category = create('CodeableConcept') as fhir_composition_category_imaging,
+        fhir_composition_category_imaging.coding = create('Coding') as fhir_composition_category_imaging_coding,
+        fhir_composition_category_imaging_coding.system = 'http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs',
+        fhir_composition_category_imaging_coding.code = 'Medical-Imaging'
+        "ImagingCompositionCategoryImaging";
 }
 
 // ClinicalDocument -> DiagnosticReport.
@@ -148,6 +163,10 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_diagnosticReport.meta as fhir_diagnosticReport_meta,
         fhir_diagnosticReport_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/DiagnosticReportEuImaging'
         "ImagingDiagnosticReportProfile";
+
+    // ClinicalDocument/setId -> DiagnosticReport.identifier
+    // (Profil: Kennung, die allen Versionen des Befunds gemeinsam ist; wie Composition.identifier bei ELGA)
+    cda.setId -> fhir_diagnosticReport.identifier "ImagingDiagnosticReportIdentifier";
 
    // DiagnosticReport.code  ->  ClinicalDocument/code
     cda.code -> fhir_diagnosticReport.code "ImagingDiagnosticReportCode";

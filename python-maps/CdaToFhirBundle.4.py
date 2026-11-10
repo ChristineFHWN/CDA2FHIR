@@ -87183,12 +87183,30 @@ def CdaImagingHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_
         fhir_composition.meta = malac.models.fhir.r4.Meta()
     fhir_composition_meta = fhir_composition.meta
     fhir_composition_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/CompositionEuImaging'))
+    if cda.code is not None:
+        fhir_composition.type_ = malac.models.fhir.r4.CodeableConcept()
+        transform_default(cda.code, fhir_composition.type_)
+    fhir_composition_category_report = malac.models.fhir.r4.CodeableConcept()
+    fhir_composition.category.append(fhir_composition_category_report)
+    fhir_composition_category_report_coding = malac.models.fhir.r4.Coding()
+    fhir_composition_category_report.coding.append(fhir_composition_category_report_coding)
+    fhir_composition_category_report_coding.system = uri(value='http://loinc.org')
+    fhir_composition_category_report_coding.code = string(value='85430-7')
+    fhir_composition_category_imaging = malac.models.fhir.r4.CodeableConcept()
+    fhir_composition.category.append(fhir_composition_category_imaging)
+    fhir_composition_category_imaging_coding = malac.models.fhir.r4.Coding()
+    fhir_composition_category_imaging.coding.append(fhir_composition_category_imaging_coding)
+    fhir_composition_category_imaging_coding.system = uri(value='http://hl7.eu/fhir/health-data-api/CodeSystem/eehrxf-document-priority-category-cs')
+    fhir_composition_category_imaging_coding.code = string(value='Medical-Imaging')
 
 def CdaImagingHeaderToFhirDiagnosticReport(cda, fhir_diagnosticReport):
     if fhir_diagnosticReport.meta is None:
         fhir_diagnosticReport.meta = malac.models.fhir.r4.Meta()
     fhir_diagnosticReport_meta = fhir_diagnosticReport.meta
     fhir_diagnosticReport_meta.profile.append(string(value='http://hl7.eu/fhir/imaging/StructureDefinition/DiagnosticReportEuImaging'))
+    if cda.setId is not None:
+        fhir_diagnosticReport.identifier.append(malac.models.fhir.r4.Identifier())
+        II(cda.setId, fhir_diagnosticReport.identifier[-1])
     if cda.code is not None:
         fhir_diagnosticReport.code = malac.models.fhir.r4.CodeableConcept()
         transform_default(cda.code, fhir_diagnosticReport.code)
