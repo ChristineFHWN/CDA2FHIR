@@ -16,7 +16,7 @@ map "https://fhir.hl7.at/elga/cda2fhir/r4/StructureMap/at-cda-imaging-to-fhir-bu
 //
 // ____________________________________ ConceptMaps ____________________________________
 
-// Übersetzungstabelle: Dokumentstatus im CDA (sdtc:statusCode) -> DiagnosticReport.status
+// Translation table: document status in CDA (sdtc:statusCode) -> DiagnosticReport.status
 conceptmap "cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status" {
   prefix s = "http://terminology.hl7.org/CodeSystem/v3-ActStatus"
   prefix t = "http://hl7.org/fhir/diagnostic-report-status"
@@ -135,11 +135,11 @@ group CdaImagingHeaderToFhirComposition(source cda: ClinicalDocument, target fhi
         fhir_composition_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/CompositionEuImaging'
         "ImagingCompositionProfile";
 
-        // ClinicalDocument/code -> Composition.type (wie DiagnosticReport.code)
+    // ClinicalDocument/code -> Composition.type (same as DiagnosticReport.code)
     cda.code -> fhir_composition.type "ImagingCompositionType";
 
-    // Composition.category (Slice imaging-report, fest vorgegeben)
-    // Die ELGA-Kategorie (practiceSettingCode, z. B. Radiologie) bleibt zusaetzlich erhalten.
+    // Composition.category (slice imaging-report, fixed value required by the profile)
+    // The ELGA category (practiceSettingCode, e.g. Radiologie) is kept in addition.
     cda ->
         fhir_composition.category = create('CodeableConcept') as fhir_composition_category_report,
         fhir_composition_category_report.coding = create('Coding') as fhir_composition_category_report_coding,
@@ -147,7 +147,7 @@ group CdaImagingHeaderToFhirComposition(source cda: ClinicalDocument, target fhi
         fhir_composition_category_report_coding.code = '85430-7'
         "ImagingCompositionCategoryReport";
 
-    // Composition.category (Slice imaging, fest vorgegeben)
+    // Composition.category (slice imaging, fixed value required by the profile)
     cda ->
         fhir_composition.category = create('CodeableConcept') as fhir_composition_category_imaging,
         fhir_composition_category_imaging.coding = create('Coding') as fhir_composition_category_imaging_coding,
@@ -165,13 +165,13 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         "ImagingDiagnosticReportProfile";
 
     // ClinicalDocument/setId -> DiagnosticReport.identifier
-    // (Profil: Kennung, die allen Versionen des Befunds gemeinsam ist; wie Composition.identifier bei ELGA)
+    // (profile: identifier common to all versions of the report; same source as Composition.identifier in the ELGA maps)
     cda.setId -> fhir_diagnosticReport.identifier "ImagingDiagnosticReportIdentifier";
 
-   // DiagnosticReport.code  ->  ClinicalDocument/code
+    // ClinicalDocument/code -> DiagnosticReport.code
     cda.code -> fhir_diagnosticReport.code "ImagingDiagnosticReportCode";
 
-    // DiagnosticReport.category (Slice imaging-report, fest vorgegeben)
+    // DiagnosticReport.category (slice imaging-report, fixed value required by the profile)
     cda ->
         fhir_diagnosticReport.category = create('CodeableConcept') as fhir_category_report,
         fhir_category_report.coding = create('Coding') as fhir_category_report_coding,
@@ -179,7 +179,7 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_category_report_coding.code = '85430-7'
         "ImagingDiagnosticReportCategoryReport";
 
-    // DiagnosticReport.category (Slice imaging, fest vorgegeben)
+    // DiagnosticReport.category (slice imaging, fixed value required by the profile)
     cda ->
         fhir_diagnosticReport.category = create('CodeableConcept') as fhir_category_imaging,
         fhir_category_imaging.coding = create('Coding') as fhir_category_imaging_coding,
@@ -187,14 +187,14 @@ group CdaImagingHeaderToFhirDiagnosticReport(source cda: ClinicalDocument, targe
         fhir_category_imaging_coding.code = 'Medical-Imaging'
         "ImagingDiagnosticReportCategoryImaging";
 
-    // ClinicalDocument/sdtc:statusCode -> DiagnosticReport.status (Fall 1: Status im CDA vorhanden)
+    // ClinicalDocument/sdtc:statusCode -> DiagnosticReport.status (case 1: status present in CDA)
     cda.sdtcStatusCode as cda_statusCode then {
         cda_statusCode.code as cda_status_code ->
             fhir_diagnosticReport.status = translate(cda_status_code, '#cda-imaging-sdtc-statuscode-2-fhir-diagnosticreport-status', 'code')
             "ImagingDiagnosticReportStatusMapped";
     } "ImagingDiagnosticReportStatus";
 
-    // DiagnosticReport.status (Fall 2: kein Status im CDA -> Befund ist fertig)
+    // DiagnosticReport.status (case 2: no status in CDA -> report is final)
     cda where cda.sdtcStatusCode.exists().not() ->
         fhir_diagnosticReport.status = 'final'
         "ImagingDiagnosticReportStatusFinal";
@@ -222,9 +222,9 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
   // TODO ClinicalDocument/documentationOf/serviceEvent -> Procedure / ImagingStudy
   // TODO ClinicalDocument/inFulfillmentOf/order         -> ServiceRequest (basedOn) + AccessionNumber
   // So basically add every header element here that is not covered in `CdaImagingHeaderToFhirDiagnosticReport` or  `CdaImagingHeaderToFhirComposition`
-    // Composition.section:procedure (LOINC 55111-9) mit allen Procedures
-    // Der Abschnitt wird hier im Header-Kapitel angelegt (nicht im Body), weil er im EU-Profil
-    // Pflicht ist und seine Eintraege (Procedures) aus dem Header (serviceEvent) stammen.
+    // Composition.section:procedure (LOINC 55111-9) with all Procedures
+    // The section is created here in the header group (not in the body group) because it is
+    // mandatory in the EU profile and its entries (Procedures) come from the header (serviceEvent).
     cda where cda.documentationOf.exists() ->
         fhir_composition.section as fhir_section_procedure,
         fhir_section_procedure.code as fhir_section_procedure_code,
@@ -232,7 +232,7 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
         fhir_section_procedure_coding.system = 'http://loinc.org',
         fhir_section_procedure_coding.code = '55111-9'
     then {
-        // Titel und Text aus dem CDA-Abschnitt "Durchgefuehrte Untersuchung" (55111-9), falls vorhanden
+        // Title and text from the CDA section "Durchgefuehrte Untersuchung" (55111-9), if present
         cda.component as cda_component then {
             cda_component.structuredBody as cda_structuredBody then {
                 cda_structuredBody.component as cda_body_component then {
@@ -244,21 +244,21 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
         } "ImagingComponent";
 
         // ClinicalDocument/documentationOf/serviceEvent -> Procedure (ProcedureEuImaging)
-        // Jede Untersuchung (serviceEvent) wird zu einer eigenen Procedure im Bundle
-        // und als entry im Abschnitt procedure verlinkt.
+        // Each examination (serviceEvent) becomes a separate Procedure in the Bundle
+        // and is referenced as an entry in the procedure section.
         cda.documentationOf as cda_documentationOf then {
             cda_documentationOf.serviceEvent as cda_serviceEvent ->
-                // neue Karteikarte Procedure ins Bundle legen
+                // create the Procedure and add it to the Bundle
                 fhir_bundle.entry as fhir_bundle_entry_procedure,
                 fhir_bundle_entry_procedure.resource = create('Procedure') as fhir_procedure,
                 fhir_procedure.id = uuid() as fhir_procedure_id,
                 fhir_bundle_entry_procedure.fullUrl = append('urn:uuid:', fhir_procedure_id),
 
-                // Profil-Etikett
+                // Procedure.meta.profile
                 fhir_procedure.meta as fhir_procedure_meta,
                 fhir_procedure_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/ProcedureEuImaging',
 
-                // Status: Untersuchung ist abgeschlossen (sonst gaebe es keinen Befund)
+                // Procedure.status: examination is completed (otherwise there would be no report)
                 fhir_procedure.status = 'completed',
 
                 // Procedure -> Patient
@@ -267,7 +267,7 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
                 fhir_procedure_subject_reference.reference = append('urn:uuid:', fhir_patient_id),
                 fhir_procedure_subject_reference.type = 'Patient',
 
-                // Abschnitt procedure -> Procedure (entry)
+                // procedure section -> Procedure (entry)
                 fhir_section_procedure.entry = create('Reference') as fhir_section_procedure_entry,
                 fhir_section_procedure_entry.reference = append('urn:uuid:', fhir_procedure_id),
                 fhir_section_procedure_entry.type = 'Procedure'
@@ -296,13 +296,13 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
 
     cda_structuredBody.component as cda_component then {
 
-        // Anforderung (LOINC 55115-0) -> Composition.section:order (LOINC 55115-0)
+        // Anforderung / order (LOINC 55115-0) -> Composition.section:order (LOINC 55115-0)
         cda_component.section as cda_section where (code.where(code = '55115-0' and codeSystem = '2.16.840.1.113883.6.1')) ->
             fhir_composition.section as fhir_section
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionOrder";
 
-        // Befund (LOINC 18782-3) -> Composition.section:findings (LOINC 59776-5)
+        // Befund / findings (LOINC 18782-3) -> Composition.section:findings (LOINC 59776-5)
         cda_component.section as cda_section where (code.where(code = '18782-3' and codeSystem = '2.16.840.1.113883.6.1')) ->
             fhir_composition.section as fhir_section,
             fhir_section.code as fhir_section_code,
@@ -312,13 +312,13 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionFindings";
 
-        // Verdachtsdiagnose (LOINC 19005-8) -> Composition.section:impression (LOINC 19005-8)
+        // Verdachtsdiagnose / suspected diagnosis (LOINC 19005-8) -> Composition.section:impression (LOINC 19005-8)
         cda_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
             fhir_composition.section as fhir_section
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionImpression";
 
-        // Anamnese (LOINC 10164-2) -> Composition.section:history (LOINC 11329-0)
+        // Anamnese / history (LOINC 10164-2) -> Composition.section:history (LOINC 11329-0)
         cda_component.section as cda_section where (code.where(code = '10164-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
             fhir_composition.section as fhir_section,
             fhir_section.code as fhir_section_code,
@@ -327,23 +327,43 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_coding.code = '11329-0'
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionHistory";
+
+        // Fruehere Untersuchungen und Befunde / prior examinations (LOINC 55114-3) -> Composition.section:comparison (LOINC 18834-2)
+        cda_component.section as cda_section where (code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section,
+            fhir_section.code as fhir_section_code,
+            fhir_section_code.coding as fhir_section_coding,
+            fhir_section_coding.system = 'http://loinc.org',
+            fhir_section_coding.code = '18834-2'
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionComparison";
+
+        // Weitere empfohlene Massnahmen / recommended actions (LOINC 59772-4) -> Composition.section:recommendation (LOINC 18783-1)
+        cda_component.section as cda_section where (code.where(code = '59772-4' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section,
+            fhir_section.code as fhir_section_code,
+            fhir_section_code.coding as fhir_section_coding,
+            fhir_section_coding.system = 'http://loinc.org',
+            fhir_section_coding.code = '18783-1'
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionRecommendation";
     } "ImagingSections";
 }
 
-// Gemeinsame Regeln fuer jeden Bildgebungs-Abschnitt.
-// Uebernimmt Titel, Text und Autor aus CdaSectionToFhirSection (ELGA) und
-// ergaenzt den Original-Code des CDA-Abschnitts.
+// Common rules for every imaging section.
+// Reuses title, text and author from CdaSectionToFhirSection (ELGA) and
+// adds the original code of the CDA section.
 group CdaImagingSectionToFhirSection(source cda_section: Section, target fhir_section, target fhir_bundle: Bundle) extends CdaSectionToFhirSection {
     // section/code -> Composition.section.code
-    // (als zusaetzliches coding, damit ein bereits gesetzter EU-Code erhalten bleibt)
+    // (as an additional coding, so that an EU code set before is kept)
     cda_section.code as cda_section_code ->
         fhir_section.code as fhir_section_code,
         fhir_section_code.coding as fhir_section_coding
         then CDCoding(cda_section_code, fhir_section_coding)
         "ImagingSectionCode";
 
-    // Unterabschnitte: section/component/section -> Composition.section.section
-    // (ruft dieses Kapitel fuer jeden Unterabschnitt erneut auf)
+    // Subsections: section/component/section -> Composition.section.section
+    // (calls this group again for every subsection)
     cda_section.component as cda_sub_component then {
         cda_sub_component.section as cda_sub_section ->
             fhir_section.section as fhir_sub_section
