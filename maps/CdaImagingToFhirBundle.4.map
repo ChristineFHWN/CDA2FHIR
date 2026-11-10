@@ -292,6 +292,22 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_coding.code = '59776-5'
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionFindings";
+
+        // Verdachtsdiagnose (LOINC 19005-8) -> Composition.section:impression (LOINC 19005-8)
+        cda_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionImpression";
+
+        // Anamnese (LOINC 10164-2) -> Composition.section:history (LOINC 11329-0)
+        cda_component.section as cda_section where (code.where(code = '10164-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section,
+            fhir_section.code as fhir_section_code,
+            fhir_section_code.coding as fhir_section_coding,
+            fhir_section_coding.system = 'http://loinc.org',
+            fhir_section_coding.code = '11329-0'
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionHistory";
     } "ImagingSections";
 }
 
@@ -306,4 +322,13 @@ group CdaImagingSectionToFhirSection(source cda_section: Section, target fhir_se
         fhir_section_code.coding as fhir_section_coding
         then CDCoding(cda_section_code, fhir_section_coding)
         "ImagingSectionCode";
+
+    // Unterabschnitte: section/component/section -> Composition.section.section
+    // (ruft dieses Kapitel fuer jeden Unterabschnitt erneut auf)
+    cda_section.component as cda_sub_component then {
+        cda_sub_component.section as cda_sub_section ->
+            fhir_section.section as fhir_sub_section
+            then CdaImagingSectionToFhirSection(cda_sub_section, fhir_sub_section, fhir_bundle)
+            "ImagingSubSection";
+    } "ImagingSubSections";
 }
