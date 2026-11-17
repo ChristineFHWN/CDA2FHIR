@@ -37,6 +37,7 @@ uses "http://hl7.org/cda/stds/core/StructureDefinition/Section" alias Section as
 uses "http://hl7.org/cda/stds/core/StructureDefinition/PatientRole" alias PatientRole as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/StructuredBody" alias StructuredBody as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Observation" alias CDAObservation as source
+uses "http://hl7.org/cda/stds/core/StructureDefinition/PQ" alias PQ as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Performer2" alias Performer as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Procedure" alias CDAProcedure as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Organizer" alias Organizer as source
@@ -281,8 +282,19 @@ group CdaImagingHeaderToFhir(source cda: ClinicalDocument, target fhir_compositi
                     fhir_procedure.performed = create('Period') as fhir_procedure_period
                     then IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
                     "ImagingProcedurePerformed";
+
+                // Radiation dose entries of the procedure section -> Observation, linked to this Procedure.
+                // Only if there is exactly one examination; otherwise the dose cannot be assigned to one Procedure.
+                cda where (cda.documentationOf.count() = 1)
+                    then CdaImagingDoseToFhirObservationLinked(cda, fhir_bundle, fhir_patient, fhir_procedure)
+                    "ImagingDoseLinked";
             } "ImagingServiceEventToProcedure";
         } "ImagingDocumentationOfToProcedure";
+
+        // Radiation dose entries if there is more than one examination: Observation without link to a Procedure
+        cda where (cda.documentationOf.count() > 1)
+            then CdaImagingDoseToFhirObservationUnlinked(cda, fhir_bundle, fhir_patient)
+            "ImagingDoseUnlinked";
     } "ImagingSectionProcedure";
 }
 
@@ -370,4 +382,104 @@ group CdaImagingSectionToFhirSection(source cda_section: Section, target fhir_se
             then CdaImagingSectionToFhirSection(cda_sub_section, fhir_sub_section, fhir_bundle)
             "ImagingSubSection";
     } "ImagingSubSections";
+} 
+// _________________________ Entry Level Templates: Radiation Dose _________________________
+
+// Radiation dose (templateId 1.2.40.0.34.6.0.11.3.183, e.g. DCM 113813 CT Dose Length Product Total)
+// in the section "Durchgefuehrte Untersuchung" (55111-9) -> Observation.
+// Not mapped to ObservationRadiationDoseEuImaging: that profile requires partOf:study (ImagingStudy, 1..1),
+// which cannot be created from a v3 report (no Study Instance UID), and allows the value only as a
+// string (LOINC 73569-6). A plain Observation keeps the coded quantity (value and unit) without loss.
+// The Observation is not added as an entry of the procedure section: the slices of that section only
+// accept ProcedureEuImaging, AdverseEventEuImaging and ObservationRadiationDoseEuImaging.
+// It is linked to the examination via Observation.partOf instead.
+
+// Case 1: exactly one examination -> Observation.partOf references the Procedure
+group CdaImagingDoseToFhirObservationLinked(source cda: ClinicalDocument, target fhir_bundle: Bundle, target fhir_patient: Patient, target fhir_procedure: Procedure) {
+    cda.component as cda_component then {
+        cda_component.structuredBody as cda_structuredBody then {
+            cda_structuredBody.component as cda_body_component then {
+                cda_body_component.section as cda_section where (code.where(code = '55111-9' and codeSystem = '2.16.840.1.113883.6.1')) then {
+                    cda_section.entry as cda_entry then {
+                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183').exists()) ->
+                            fhir_bundle.entry as fhir_bundle_entry_dose,
+                            fhir_bundle_entry_dose.resource = create('Observation') as fhir_observation,
+                            fhir_observation.id = uuid() as fhir_observation_id,
+                            fhir_bundle_entry_dose.fullUrl = append('urn:uuid:', fhir_observation_id),
+
+                            // Observation -> Procedure (partOf)
+                            fhir_procedure.id as fhir_procedure_id,
+                            fhir_observation.partOf = create('Reference') as fhir_observation_partof,
+                            fhir_observation_partof.reference = append('urn:uuid:', fhir_procedure_id),
+                            fhir_observation_partof.type = 'Procedure'
+                            then CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation, fhir_patient)
+                            "ImagingDoseObservationLinked";
+                    } "ImagingDoseEntryLinked";
+                } "ImagingDoseSectionLinked";
+            } "ImagingDoseBodyComponentLinked";
+        } "ImagingDoseStructuredBodyLinked";
+    } "ImagingDoseComponentLinked";
+}
+
+// Case 2: more than one examination -> Observation without partOf
+group CdaImagingDoseToFhirObservationUnlinked(source cda: ClinicalDocument, target fhir_bundle: Bundle, target fhir_patient: Patient) {
+    cda.component as cda_component then {
+        cda_component.structuredBody as cda_structuredBody then {
+            cda_structuredBody.component as cda_body_component then {
+                cda_body_component.section as cda_section where (code.where(code = '55111-9' and codeSystem = '2.16.840.1.113883.6.1')) then {
+                    cda_section.entry as cda_entry then {
+                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183').exists()) ->
+                            fhir_bundle.entry as fhir_bundle_entry_dose,
+                            fhir_bundle_entry_dose.resource = create('Observation') as fhir_observation,
+                            fhir_observation.id = uuid() as fhir_observation_id,
+                            fhir_bundle_entry_dose.fullUrl = append('urn:uuid:', fhir_observation_id)
+                            then CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation, fhir_patient)
+                            "ImagingDoseObservationUnlinked";
+                    } "ImagingDoseEntryUnlinked";
+                } "ImagingDoseSectionUnlinked";
+            } "ImagingDoseBodyComponentUnlinked";
+        } "ImagingDoseStructuredBodyUnlinked";
+    } "ImagingDoseComponentUnlinked";
+}
+
+// Common content of a radiation dose Observation
+group CdaImagingDoseObservationToFhirObservation(source cda_observation: CDAObservation, target fhir_observation: Observation, target fhir_patient: Patient) {
+    // observation/statusCode (fixed value completed) -> Observation.status
+    cda_observation.statusCode as cda_status where (code = 'completed') ->
+        fhir_observation.status = 'final'
+        "ImagingDoseStatus";
+
+    // Observation.category: imaging
+    cda_observation ->
+        fhir_observation.category = create('CodeableConcept') as fhir_dose_category,
+        fhir_dose_category.coding = create('Coding') as fhir_dose_category_coding,
+        fhir_dose_category_coding.system = 'http://terminology.hl7.org/CodeSystem/observation-category',
+        fhir_dose_category_coding.code = 'imaging'
+        "ImagingDoseCategory";
+
+    // observation/code (DCM, e.g. 113813) -> Observation.code
+    cda_observation.code as cda_code ->
+        fhir_observation.code = create('CodeableConcept') as fhir_dose_code
+        then CDCodeableConcept(cda_code, fhir_dose_code)
+        "ImagingDoseCode";
+
+    // Observation -> Patient
+    cda_observation ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_observation.subject = create('Reference') as fhir_dose_subject,
+        fhir_dose_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_dose_subject.type = 'Patient'
+        "ImagingDoseSubject";
+
+    // observation/effectiveTime -> Observation.effectiveDateTime
+    cda_observation.effectiveTime as cda_effectiveTime ->
+        fhir_observation.effective = create('dateTime') as fhir_dose_effective
+        then TSDateTime(cda_effectiveTime, fhir_dose_effective)
+        "ImagingDoseEffective";
+
+    // observation/value (PQ, e.g. 230 mGy.cm) -> Observation.valueQuantity (UCUM)
+    cda_observation.value : PQ as cda_value ->
+        fhir_observation.value = create('Quantity') as fhir_dose_value
+        then PQQuantity(cda_value, fhir_dose_value)
+        "ImagingDoseValue";
 }

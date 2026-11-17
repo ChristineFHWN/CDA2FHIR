@@ -87297,6 +87297,10 @@ def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhi
                     fhir_procedure_period = malac.models.fhir.r4.Period()
                     fhir_procedure.performedPeriod = fhir_procedure_period
                     IVLTSPeriod(cda_serviceEvent_time, fhir_procedure_period)
+                if len(fhirpath_utils.get(cda,'documentationOf')) == 1:
+                    CdaImagingDoseToFhirObservationLinked(cda, fhir_bundle, fhir_patient, fhir_procedure)
+        if len(fhirpath_utils.get(cda,'documentationOf')) > 1:
+            CdaImagingDoseToFhirObservationUnlinked(cda, fhir_bundle, fhir_patient)
 
 def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle):
     CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_bundle)
@@ -87382,6 +87386,91 @@ def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
             fhir_sub_section = malac.models.fhir.r4.Composition_Section()
             fhir_section.section.append(fhir_sub_section)
             CdaImagingSectionToFhirSection(cda_sub_section, fhir_sub_section, fhir_bundle)
+
+def CdaImagingDoseToFhirObservationLinked(cda, fhir_bundle, fhir_patient, fhir_procedure):
+    cda_component = cda.component
+    if cda_component is not None:
+        cda_structuredBody = cda_component.structuredBody
+        if cda_structuredBody is not None:
+            for cda_body_component in cda_structuredBody.component or []:
+                cda_section = cda_body_component.section
+                if cda_section is not None:
+                    if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55111-9' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                        for cda_entry in cda_section.entry or []:
+                            cda_observation = cda_entry.observation
+                            if cda_observation is not None:
+                                if [v1 for v1 in fhirpath_utils.get(cda_observation,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.183']:
+                                    fhir_bundle_entry_dose = malac.models.fhir.r4.Bundle_Entry()
+                                    fhir_bundle.entry.append(fhir_bundle_entry_dose)
+                                    fhir_observation = malac.models.fhir.r4.Observation()
+                                    fhir_bundle_entry_dose.resource = malac.models.fhir.r4.ResourceContainer(Observation=fhir_observation)
+                                    fhir_observation_id = string(value=str(uuid.uuid4()))
+                                    fhir_observation.id = fhir_observation_id
+                                    fhir_bundle_entry_dose.fullUrl = uri(value=('urn:uuid:' + fhir_observation_id.value))
+                                    if fhir_procedure.id is None:
+                                        fhir_procedure.id = malac.models.fhir.r4.string()
+                                    fhir_procedure_id = fhir_procedure.id
+                                    fhir_observation_partof = malac.models.fhir.r4.Reference()
+                                    fhir_observation.partOf.append(fhir_observation_partof)
+                                    fhir_observation_partof.reference = string(value=('urn:uuid:' + fhir_procedure_id.value))
+                                    fhir_observation_partof.type_ = uri(value='Procedure')
+                                    CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation, fhir_patient)
+
+def CdaImagingDoseToFhirObservationUnlinked(cda, fhir_bundle, fhir_patient):
+    cda_component = cda.component
+    if cda_component is not None:
+        cda_structuredBody = cda_component.structuredBody
+        if cda_structuredBody is not None:
+            for cda_body_component in cda_structuredBody.component or []:
+                cda_section = cda_body_component.section
+                if cda_section is not None:
+                    if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55111-9' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                        for cda_entry in cda_section.entry or []:
+                            cda_observation = cda_entry.observation
+                            if cda_observation is not None:
+                                if [v1 for v1 in fhirpath_utils.get(cda_observation,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.183']:
+                                    fhir_bundle_entry_dose = malac.models.fhir.r4.Bundle_Entry()
+                                    fhir_bundle.entry.append(fhir_bundle_entry_dose)
+                                    fhir_observation = malac.models.fhir.r4.Observation()
+                                    fhir_bundle_entry_dose.resource = malac.models.fhir.r4.ResourceContainer(Observation=fhir_observation)
+                                    fhir_observation_id = string(value=str(uuid.uuid4()))
+                                    fhir_observation.id = fhir_observation_id
+                                    fhir_bundle_entry_dose.fullUrl = uri(value=('urn:uuid:' + fhir_observation_id.value))
+                                    CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation, fhir_patient)
+
+def CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation, fhir_patient):
+    cda_status = cda_observation.statusCode
+    if cda_status is not None:
+        if cda_status.code == 'completed':
+            fhir_observation.status = string(value='final')
+    fhir_dose_category = malac.models.fhir.r4.CodeableConcept()
+    fhir_observation.category.append(fhir_dose_category)
+    fhir_dose_category_coding = malac.models.fhir.r4.Coding()
+    fhir_dose_category.coding.append(fhir_dose_category_coding)
+    fhir_dose_category_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/observation-category')
+    fhir_dose_category_coding.code = string(value='imaging')
+    cda_code = cda_observation.code
+    if cda_code is not None:
+        fhir_dose_code = malac.models.fhir.r4.CodeableConcept()
+        fhir_observation.code = fhir_dose_code
+        CDCodeableConcept(cda_code, fhir_dose_code)
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_dose_subject = malac.models.fhir.r4.Reference()
+    fhir_observation.subject = fhir_dose_subject
+    fhir_dose_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_dose_subject.type_ = uri(value='Patient')
+    cda_effectiveTime = cda_observation.effectiveTime
+    if cda_effectiveTime is not None:
+        fhir_dose_effective = malac.models.fhir.r4.dateTime()
+        fhir_observation.effectiveDateTime = fhir_dose_effective
+        TSDateTime(cda_effectiveTime, fhir_dose_effective)
+    for cda_value in cda_observation.value or []:
+        if type(cda_value) is malac.models.cda.at_ext.PQ:
+            fhir_dose_value = malac.models.fhir.r4.Quantity()
+            fhir_observation.valueQuantity = fhir_dose_value
+            PQQuantity(cda_value, fhir_dose_value)
 
 def unpack_container(resource_container):
     if resource_container is None:
