@@ -87263,6 +87263,12 @@ def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhi
                     if cda_section is not None:
                         if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55111-9' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
                             CdaSectionToFhirSection(cda_section, fhir_section_procedure, fhir_bundle)
+                    cda_section = cda_body_component.section
+                    if cda_section is not None:
+                        if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55109-3' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                            fhir_section_complications = malac.models.fhir.r4.Composition_Section()
+                            fhir_section_procedure.section.append(fhir_section_complications)
+                            CdaImagingSectionToFhirSection(cda_section, fhir_section_complications, fhir_bundle)
         for cda_documentationOf in cda.documentationOf or []:
             cda_serviceEvent = cda_documentationOf.serviceEvent
             if cda_serviceEvent is not None:
