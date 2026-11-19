@@ -87426,6 +87426,27 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
                 fhir_section = malac.models.fhir.r4.Composition_Section()
                 fhir_composition.section.append(fhir_section)
                 CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+                for cda_entry in cda_section.entry or []:
+                    cda_concern = cda_entry.act
+                    if cda_concern is not None:
+                        if [v1 for v1 in fhirpath_utils.get(cda_concern,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.7']:
+                            for cda_concern_relationship in cda_concern.entryRelationship or []:
+                                if cda_concern_relationship.typeCode == 'SUBJ':
+                                    cda_problem = cda_concern_relationship.observation
+                                    if cda_problem is not None:
+                                        if [v1 for v1 in fhirpath_utils.get(cda_problem,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.6']:
+                                            fhir_bundle_entry_condition = malac.models.fhir.r4.Bundle_Entry()
+                                            fhir_bundle.entry.append(fhir_bundle_entry_condition)
+                                            fhir_condition = malac.models.fhir.r4.Condition()
+                                            fhir_bundle_entry_condition.resource = malac.models.fhir.r4.ResourceContainer(Condition=fhir_condition)
+                                            fhir_condition_id = string(value=str(uuid.uuid4()))
+                                            fhir_condition.id = fhir_condition_id
+                                            fhir_bundle_entry_condition.fullUrl = uri(value=('urn:uuid:' + fhir_condition_id.value))
+                                            fhir_section_condition_entry = malac.models.fhir.r4.Reference()
+                                            fhir_section.entry.append(fhir_section_condition_entry)
+                                            fhir_section_condition_entry.reference = string(value=('urn:uuid:' + fhir_condition_id.value))
+                                            fhir_section_condition_entry.type_ = uri(value='Condition')
+                                            CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, fhir_patient)
 
 def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
@@ -87528,6 +87549,73 @@ def CdaImagingDoseObservationToFhirObservation(cda_observation, fhir_observation
             fhir_dose_value = malac.models.fhir.r4.Quantity()
             fhir_observation.valueQuantity = fhir_dose_value
             PQQuantity(cda_value, fhir_dose_value)
+
+def CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, fhir_patient):
+    for id_ in cda_problem.id or []:
+        fhir_condition.identifier.append(malac.models.fhir.r4.Identifier())
+        II(id_, fhir_condition.identifier[-1])
+    fhir_condition_category = malac.models.fhir.r4.CodeableConcept()
+    fhir_condition.category.append(fhir_condition_category)
+    fhir_condition_category_coding = malac.models.fhir.r4.Coding()
+    fhir_condition_category.coding.append(fhir_condition_category_coding)
+    fhir_condition_category_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/condition-category')
+    fhir_condition_category_coding.code = string(value='encounter-diagnosis')
+    for cda_problem_value in cda_problem.value or []:
+        if type(cda_problem_value) is malac.models.cda.at_ext.CD:
+            fhir_condition_code = malac.models.fhir.r4.CodeableConcept()
+            fhir_condition.code = fhir_condition_code
+            CDCodeableConcept(cda_problem_value, fhir_condition_code)
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_condition_subject = malac.models.fhir.r4.Reference()
+    fhir_condition.subject = fhir_condition_subject
+    fhir_condition_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_condition_subject.type_ = uri(value='Patient')
+    cda_problem_time = cda_problem.effectiveTime
+    if cda_problem_time is not None:
+        cda_problem_low = cda_problem_time.low
+        if cda_problem_low is not None:
+            if cda_problem_low.nullFlavor is None:
+                fhir_condition_onset = malac.models.fhir.r4.dateTime()
+                fhir_condition.onsetDateTime = fhir_condition_onset
+                IVXB_TSDateTime(cda_problem_low, fhir_condition_onset)
+        cda_problem_high = cda_problem_time.high
+        if cda_problem_high is not None:
+            if cda_problem_high.nullFlavor is None:
+                fhir_condition_abatement = malac.models.fhir.r4.dateTime()
+                fhir_condition.abatementDateTime = fhir_condition_abatement
+                IVXB_TSDateTime(cda_problem_high, fhir_condition_abatement)
+    if not fhirpath_utils.get(cda_problem,'effectiveTime','high'):
+        fhir_condition_clinical = malac.models.fhir.r4.CodeableConcept()
+        fhir_condition.clinicalStatus = fhir_condition_clinical
+        fhir_condition_clinical_coding = malac.models.fhir.r4.Coding()
+        fhir_condition_clinical.coding.append(fhir_condition_clinical_coding)
+        fhir_condition_clinical_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/condition-clinical')
+        fhir_condition_clinical_coding.code = string(value='active')
+    if fhirpath_utils.get(cda_problem,'effectiveTime','high'):
+        fhir_condition_clinical = malac.models.fhir.r4.CodeableConcept()
+        fhir_condition.clinicalStatus = fhir_condition_clinical
+        fhir_condition_clinical_coding = malac.models.fhir.r4.Coding()
+        fhir_condition_clinical.coding.append(fhir_condition_clinical_coding)
+        fhir_condition_clinical_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/condition-clinical')
+        fhir_condition_clinical_coding.code = string(value='resolved')
+    if fhirpath.single(fhirpath_utils.equals(fhirpath_utils.get(cda_problem,'negationInd'), '==', [True])):
+        fhir_condition_verification = malac.models.fhir.r4.CodeableConcept()
+        fhir_condition.verificationStatus = fhir_condition_verification
+        fhir_condition_verification_coding = malac.models.fhir.r4.Coding()
+        fhir_condition_verification.coding.append(fhir_condition_verification_coding)
+        fhir_condition_verification_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/condition-ver-status')
+        fhir_condition_verification_coding.code = string(value='refuted')
+    cda_concern_time = cda_concern.effectiveTime
+    if cda_concern_time is not None:
+        cda_concern_low = cda_concern_time.low
+        if cda_concern_low is not None:
+            if cda_concern_low.nullFlavor is None:
+                if fhir_condition.recordedDate is None:
+                    fhir_condition.recordedDate = malac.models.fhir.r4.dateTime()
+                fhir_condition_recorded = fhir_condition.recordedDate
+                IVXB_TSDateTime(cda_concern_low, fhir_condition_recorded)
 
 def unpack_container(resource_container):
     if resource_container is None:
