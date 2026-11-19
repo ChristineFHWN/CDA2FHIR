@@ -87332,6 +87332,35 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
             fhir_order_code.coding.append(fhir_order_coding)
             fhir_order_coding.system = uri(value='http://loinc.org')
             fhir_order_coding.code = string(value='55115-0')
+    if [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if (v1.code == '67781-5' and v1.codeSystem == '2.16.840.1.113883.6.1')]:
+        fhir_section_impression = malac.models.fhir.r4.Composition_Section()
+        fhir_composition.section.append(fhir_section_impression)
+        if fhir_section_impression.code is None:
+            fhir_section_impression.code = malac.models.fhir.r4.CodeableConcept()
+        fhir_impression_code = fhir_section_impression.code
+        fhir_impression_coding = malac.models.fhir.r4.Coding()
+        fhir_impression_code.coding.append(fhir_impression_coding)
+        fhir_impression_coding.system = uri(value='http://loinc.org')
+        fhir_impression_coding.code = string(value='19005-8')
+        for cda_impression_component in cda_structuredBody.component or []:
+            cda_section = cda_impression_component.section
+            if cda_section is not None:
+                if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '67781-5' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                    CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
+            cda_section = cda_impression_component.section
+            if cda_section is not None:
+                if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '19005-8' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                    fhir_section_suspected = malac.models.fhir.r4.Composition_Section()
+                    fhir_section_impression.section.append(fhir_section_suspected)
+                    CdaImagingSectionToFhirSection(cda_section, fhir_section_suspected, fhir_bundle)
+    if not [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if (v1.code == '67781-5' and v1.codeSystem == '2.16.840.1.113883.6.1')]:
+        for cda_impression_component in cda_structuredBody.component or []:
+            cda_section = cda_impression_component.section
+            if cda_section is not None:
+                if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '19005-8' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                    fhir_section_impression = malac.models.fhir.r4.Composition_Section()
+                    fhir_composition.section.append(fhir_section_impression)
+                    CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
     for cda_component in cda_structuredBody.component or []:
         cda_section = cda_component.section
         if cda_section is not None:
@@ -87345,12 +87374,6 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
                 fhir_section_code.coding.append(fhir_section_coding)
                 fhir_section_coding.system = uri(value='http://loinc.org')
                 fhir_section_coding.code = string(value='59776-5')
-                CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
-        cda_section = cda_component.section
-        if cda_section is not None:
-            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '19005-8' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
-                fhir_section = malac.models.fhir.r4.Composition_Section()
-                fhir_composition.section.append(fhir_section)
                 CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
         cda_section = cda_component.section
         if cda_section is not None:

@@ -343,6 +343,41 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 "ImagingSectionOrderCode";
         } "ImagingSectionOrder";
 
+    // Impression (EU section:impression, LOINC 19005-8, max. 1)
+    // Case 1: the CDA contains the section Zusammenfassende Beurteilung (LOINC 67781-5). It is the overall
+    // assessment of the findings and becomes the impression section (EU code 19005-8 plus the original code).
+    // The section Verdachtsdiagnose (LOINC 19005-8) becomes a subsection of it.
+    cda_structuredBody where (component.section.code.where(code = '67781-5' and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
+        fhir_composition.section as fhir_section_impression,
+        fhir_section_impression.code as fhir_impression_code,
+        fhir_impression_code.coding as fhir_impression_coding,
+        fhir_impression_coding.system = 'http://loinc.org',
+        fhir_impression_coding.code = '19005-8'
+        then {
+            cda_structuredBody.component as cda_impression_component then {
+                // Zusammenfassende Beurteilung: title, text and original code of the impression section
+                cda_impression_component.section as cda_section where (code.where(code = '67781-5' and codeSystem = '2.16.840.1.113883.6.1'))
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
+                    "ImagingSectionImpressionSummary";
+
+                // Verdachtsdiagnose -> subsection of the impression section
+                cda_impression_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                    fhir_section_impression.section as fhir_section_suspected
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_suspected, fhir_bundle)
+                    "ImagingSectionImpressionSuspected";
+            } "ImagingSectionImpressionComponents";
+        } "ImagingSectionImpressionWithSummary";
+
+    // Case 2: no Zusammenfassende Beurteilung -> Verdachtsdiagnose is the impression section (LOINC 19005-8)
+    cda_structuredBody where (component.section.code.where(code = '67781-5' and codeSystem = '2.16.840.1.113883.6.1').exists().not()) then {
+        cda_structuredBody.component as cda_impression_component then {
+            cda_impression_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                fhir_composition.section as fhir_section_impression
+                then CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
+                "ImagingSectionImpressionSuspectedOnly";
+        } "ImagingSectionImpressionSuspectedComponents";
+    } "ImagingSectionImpressionWithoutSummary";
+
     cda_structuredBody.component as cda_component then {
 
         // Befund / findings (LOINC 18782-3) -> Composition.section:findings (LOINC 59776-5)
@@ -354,12 +389,6 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_coding.code = '59776-5'
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionFindings";
-
-        // Verdachtsdiagnose / suspected diagnosis (LOINC 19005-8) -> Composition.section:impression (LOINC 19005-8)
-        cda_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
-            fhir_composition.section as fhir_section
-            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
-            "ImagingSectionImpression";
 
         // Anamnese / history (LOINC 10164-2) -> Composition.section:history (LOINC 11329-0)
         cda_component.section as cda_section where (code.where(code = '10164-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
