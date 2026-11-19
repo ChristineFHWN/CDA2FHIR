@@ -87391,6 +87391,18 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
                 fhir_section_coding.system = uri(value='http://loinc.org')
                 fhir_section_coding.code = string(value='18783-1')
                 CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+        cda_section = cda_component.section
+        if cda_section is not None:
+            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '424836000' and v1.codeSystem == '2.16.840.1.113883.6.96')]):
+                fhir_section = malac.models.fhir.r4.Composition_Section()
+                fhir_composition.section.append(fhir_section)
+                CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+        cda_section = cda_component.section
+        if cda_section is not None:
+            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '439401001' and v1.codeSystem == '2.16.840.1.113883.6.96')]):
+                fhir_section = malac.models.fhir.r4.Composition_Section()
+                fhir_composition.section.append(fhir_section)
+                CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
 
 def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
