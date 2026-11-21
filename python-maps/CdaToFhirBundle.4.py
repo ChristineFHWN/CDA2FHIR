@@ -87447,6 +87447,21 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
                                             fhir_section_condition_entry.reference = string(value=('urn:uuid:' + fhir_condition_id.value))
                                             fhir_section_condition_entry.type_ = uri(value='Condition')
                                             CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, fhir_patient)
+        cda_section = cda_component.section
+        if cda_section is not None:
+            if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == 'BEIL' and v1.codeSystem == '1.2.40.0.34.5.40')]):
+                for cda_entry in cda_section.entry or []:
+                    cda_media = cda_entry.observationMedia
+                    if cda_media is not None:
+                        if [v1 for v1 in fhirpath_utils.get(cda_media,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.19']:
+                            fhir_bundle_entry_docref = malac.models.fhir.r4.Bundle_Entry()
+                            fhir_bundle.entry.append(fhir_bundle_entry_docref)
+                            fhir_docref = malac.models.fhir.r4.DocumentReference()
+                            fhir_bundle_entry_docref.resource = malac.models.fhir.r4.ResourceContainer(DocumentReference=fhir_docref)
+                            fhir_docref_id = string(value=str(uuid.uuid4()))
+                            fhir_docref.id = fhir_docref_id
+                            fhir_bundle_entry_docref.fullUrl = uri(value=('urn:uuid:' + fhir_docref_id.value))
+                            CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient)
 
 def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
@@ -87616,6 +87631,27 @@ def CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, f
                     fhir_condition.recordedDate = malac.models.fhir.r4.dateTime()
                 fhir_condition_recorded = fhir_condition.recordedDate
                 IVXB_TSDateTime(cda_concern_low, fhir_condition_recorded)
+
+def CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient):
+    fhir_docref.status = string(value='current')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_docref_subject = malac.models.fhir.r4.Reference()
+    fhir_docref.subject = fhir_docref_subject
+    fhir_docref_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_docref_subject.type_ = uri(value='Patient')
+    cda_media_value = cda_media.value
+    if cda_media_value is not None:
+        fhir_docref_content = malac.models.fhir.r4.DocumentReference_Content()
+        fhir_docref.content.append(fhir_docref_content)
+        if fhir_docref_content.attachment is None:
+            fhir_docref_content.attachment = malac.models.fhir.r4.Attachment()
+        fhir_docref_attachment = fhir_docref_content.attachment
+        cda_media_type = cda_media_value.mediaType
+        if cda_media_type is not None:
+            fhir_docref_attachment.contentType = string(value=cda_media_type)
+        fhir_docref_attachment.data = base64Binary(value=re.sub("[^a-zA-Z0-9+/=]{1,}","",fhirpath.single(fhirpath_utils.get(cda_media_value,'valueOf_',strip=True))))
 
 def unpack_container(resource_container):
     if resource_container is None:

@@ -45,6 +45,7 @@ uses "http://hl7.org/cda/stds/core/StructureDefinition/Organizer" alias Organize
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Participant1" alias Participant as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Act" alias Act as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Participant2" alias Participant2 as source
+uses "http://hl7.org/cda/stds/core/StructureDefinition/ObservationMedia" alias ObservationMedia as source
 
 // ____________________________________ Targets ____________________________________
 
@@ -460,6 +461,21 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                     } "ImagingDiagnosisConcern";
                 } "ImagingDiagnosisEntry";
             } "ImagingSectionDiagnosis";
+        // Beilagen / attachments (ELGA_Sections BEIL): Eingebettetes Objekt Entry (1.2.40.0.34.6.0.11.3.19)
+        // -> DocumentReference (recommended by ELGA GmbH, 20.11.2026: not Media, not dropped).
+        // Not referenced yet: whether it is linked via Composition.section or via an extension on the
+        // DiagnosticReport is still open (ELGA GmbH).
+        cda_component.section as cda_section where (code.where(code = 'BEIL' and codeSystem = '1.2.40.0.34.5.40')) then {
+            cda_section.entry as cda_entry then {
+                cda_entry.observationMedia as cda_media where (templateId.where(root = '1.2.40.0.34.6.0.11.3.19').exists()) ->
+                    fhir_bundle.entry as fhir_bundle_entry_docref,
+                    fhir_bundle_entry_docref.resource = create('DocumentReference') as fhir_docref,
+                    fhir_docref.id = uuid() as fhir_docref_id,
+                    fhir_bundle_entry_docref.fullUrl = append('urn:uuid:', fhir_docref_id)
+                    then CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient)
+                    "ImagingAttachmentDocumentReference";
+            } "ImagingAttachmentEntry";
+        } "ImagingSectionAttachments";
     } "ImagingSections";
 }
 
@@ -666,4 +682,29 @@ group CdaImagingProblemToFhirCondition(source cda_concern: Act, source cda_probl
             then IVXB_TSDateTime(cda_concern_low, fhir_condition_recorded)
             "ImagingConditionRecordedDate";
     } "ImagingConditionConcernTime";
+}
+// _________________________ Entry Level Templates: Attachments _________________________
+
+// Eingebettetes Objekt Entry (1.2.40.0.34.6.0.11.3.19), e.g. a PDF in the section Beilagen -> DocumentReference.
+// The base64 content is taken over unchanged as content.attachment.data.
+group CdaImagingObservationMediaToFhirDocumentReference(source cda_media: ObservationMedia, target fhir_docref: DocumentReference, target fhir_patient: Patient) {
+    // DocumentReference.status: the attachment is the current version
+    cda_media -> fhir_docref.status = 'current' "ImagingDocRefStatus";
+
+    // DocumentReference -> Patient
+    cda_media ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_docref.subject = create('Reference') as fhir_docref_subject,
+        fhir_docref_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_docref_subject.type = 'Patient'
+        "ImagingDocRefSubject";
+
+    // observationMedia/value (mediaType, base64 data) -> DocumentReference.content.attachment
+    cda_media.value as cda_media_value ->
+        fhir_docref.content as fhir_docref_content,
+        fhir_docref_content.attachment as fhir_docref_attachment
+        then {
+            cda_media_value.mediaType as cda_media_type -> fhir_docref_attachment.contentType = cda_media_type "ImagingDocRefContentType";
+            cda_media_value -> fhir_docref_attachment.data = (cda_media_value.xmlText) "ImagingDocRefData";
+        } "ImagingDocRefContent";
 }
