@@ -87388,6 +87388,37 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
                 fhir_section_coding.system = uri(value='http://loinc.org')
                 fhir_section_coding.code = string(value='11329-0')
                 CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+                for cda_history_component in cda_section.component or []:
+                    cda_device_section = cda_history_component.section
+                    if cda_device_section is not None:
+                        if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_device_section,'code') if (v1.code == '46264-8' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
+                            for cda_device_entry in cda_device_section.entry or []:
+                                cda_supply = cda_device_entry.supply
+                                if cda_supply is not None:
+                                    if [v1 for v1 in fhirpath_utils.get(cda_supply,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.39']:
+                                        fhir_bundle_entry_device = malac.models.fhir.r4.Bundle_Entry()
+                                        fhir_bundle.entry.append(fhir_bundle_entry_device)
+                                        fhir_device = malac.models.fhir.r4.Device()
+                                        fhir_bundle_entry_device.resource = malac.models.fhir.r4.ResourceContainer(Device=fhir_device)
+                                        fhir_device_id = string(value=str(uuid.uuid4()))
+                                        fhir_device.id = fhir_device_id
+                                        fhir_bundle_entry_device.fullUrl = uri(value=('urn:uuid:' + fhir_device_id.value))
+                                        fhir_section_device_entry = malac.models.fhir.r4.Reference()
+                                        fhir_section.entry.append(fhir_section_device_entry)
+                                        fhir_section_device_entry.reference = string(value=('urn:uuid:' + fhir_device_id.value))
+                                        fhir_section_device_entry.type_ = uri(value='Device')
+                                        fhir_bundle_entry_dus = malac.models.fhir.r4.Bundle_Entry()
+                                        fhir_bundle.entry.append(fhir_bundle_entry_dus)
+                                        fhir_dus = malac.models.fhir.r4.DeviceUseStatement()
+                                        fhir_bundle_entry_dus.resource = malac.models.fhir.r4.ResourceContainer(DeviceUseStatement=fhir_dus)
+                                        fhir_dus_id = string(value=str(uuid.uuid4()))
+                                        fhir_dus.id = fhir_dus_id
+                                        fhir_bundle_entry_dus.fullUrl = uri(value=('urn:uuid:' + fhir_dus_id.value))
+                                        fhir_section_dus_entry = malac.models.fhir.r4.Reference()
+                                        fhir_section.entry.append(fhir_section_dus_entry)
+                                        fhir_section_dus_entry.reference = string(value=('urn:uuid:' + fhir_dus_id.value))
+                                        fhir_section_dus_entry.type_ = uri(value='DeviceUseStatement')
+                                        CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_device_section, fhir_device, fhir_dus, fhir_patient)
         cda_section = cda_component.section
         if cda_section is not None:
             if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '55114-3' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
@@ -87652,6 +87683,77 @@ def CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fh
         if cda_media_type is not None:
             fhir_docref_attachment.contentType = string(value=cda_media_type)
         fhir_docref_attachment.data = base64Binary(value=re.sub("[^a-zA-Z0-9+/=]{1,}","",fhirpath.single(fhirpath_utils.get(cda_media_value,'valueOf_',strip=True))))
+
+def CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_section, fhir_device, fhir_dus, fhir_patient):
+    fhir_device.status = string(value='active')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_device_patient = malac.models.fhir.r4.Reference()
+    fhir_device.patient = fhir_device_patient
+    fhir_device_patient.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_device_patient.type_ = uri(value='Patient')
+    for cda_participant in cda_supply.participant or []:
+        if cda_participant.typeCode == 'DEV':
+            cda_role = cda_participant.participantRole
+            if cda_role is not None:
+                for cda_role_id in cda_role.id or []:
+                    if cda_role_id.nullFlavor is None:
+                        fhir_device_identifier = malac.models.fhir.r4.Identifier()
+                        fhir_device.identifier.append(fhir_device_identifier)
+                        II(cda_role_id, fhir_device_identifier)
+                cda_playing_device = cda_role.playingDevice
+                if cda_playing_device is not None:
+                    cda_device_code = cda_playing_device.code
+                    if cda_device_code is not None:
+                        if cda_device_code.nullFlavor is None:
+                            fhir_device_type = malac.models.fhir.r4.CodeableConcept()
+                            fhir_device.type_ = fhir_device_type
+                            CECodeableConcept(cda_device_code, fhir_device_type)
+                    cda_device_code = cda_playing_device.code
+                    if cda_device_code is not None:
+                        if cda_device_code.nullFlavor is not None:
+                            cda_original_text = cda_device_code.originalText
+                            if cda_original_text is not None:
+                                cda_original_reference = cda_original_text.reference
+                                if cda_original_reference is not None:
+                                    cda_section_text = cda_section.text
+                                    if cda_section_text is not None:
+                                        cda_reference_value = cda_original_reference.value
+                                        if cda_reference_value is not None:
+                                            fhir_narrative = malac.models.fhir.r4.Narrative()
+                                            fhir_narrative_div = utils.strucdoctext2html(malac.models.fhir.r4, cda_section_text)
+                                            fhir_narrative.div = fhir_narrative_div
+                                            fhir_string = malac.models.fhir.r4.string()
+                                            fhir_string = string(value=str(fhir_narrative_div))
+                                            fhir_substring_01 = malac.models.fhir.r4.string()
+                                            fhir_substring_01 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_string,fhirpath_utils.indexof(fhir_string, fhirpath_utils.substring(cda_reference_value,[1],[])),[])))
+                                            fhir_substring_02 = malac.models.fhir.r4.string()
+                                            fhir_substring_02 = string(value=fhirpath.single(fhirpath_utils.substring(fhir_substring_01,fhirpath_utils.add(fhirpath_utils.indexof(fhir_substring_01, ['>']), [1]),[])))
+                                            fhir_device_type = malac.models.fhir.r4.CodeableConcept()
+                                            fhir_device.type_ = fhir_device_type
+                                            fhir_device_type.text = string(value=str(fhirpath.single([v2 for v1 in fhirpath_utils.substring(fhir_substring_02,[0],fhirpath_utils.indexof(fhir_substring_02, ['<'])) for v2 in fhirpath_utils.replaceMatches(v1, ['^\\s+|\\s+$'], [''])])))
+    fhir_dus.status = string(value='active')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_dus_subject = malac.models.fhir.r4.Reference()
+    fhir_dus.subject = fhir_dus_subject
+    fhir_dus_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_dus_subject.type_ = uri(value='Patient')
+    if fhir_device.id is None:
+        fhir_device.id = malac.models.fhir.r4.string()
+    fhir_device_id = fhir_device.id
+    fhir_dus_device = malac.models.fhir.r4.Reference()
+    fhir_dus.device = fhir_dus_device
+    fhir_dus_device.reference = string(value=('urn:uuid:' + fhir_device_id.value))
+    fhir_dus_device.type_ = uri(value='Device')
+    for cda_supply_time in cda_supply.effectiveTime or []:
+        for cda_supply_low in (cda_supply_time.low if isinstance(cda_supply_time.low, list) else ([] if not cda_supply_time.low else [cda_supply_time.low])):
+            if not fhirpath_utils.get(cda_supply_low,'nullFlavor'):
+                fhir_dus_timing = malac.models.fhir.r4.dateTime()
+                fhir_dus.timingDateTime = fhir_dus_timing
+                IVXB_TSDateTime(cda_supply_low, fhir_dus_timing)
 
 def unpack_container(resource_container):
     if resource_container is None:

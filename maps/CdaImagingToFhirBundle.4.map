@@ -46,6 +46,7 @@ uses "http://hl7.org/cda/stds/core/StructureDefinition/Participant1" alias Parti
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Act" alias Act as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Participant2" alias Participant2 as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/ObservationMedia" alias ObservationMedia as source
+uses "http://hl7.org/cda/stds/core/StructureDefinition/Supply" alias Supply as source
 
 // ____________________________________ Targets ____________________________________
 
@@ -64,6 +65,7 @@ uses "http://hl7.org/fhir/4.3/StructureDefinition/ImagingStudy" alias ImagingStu
 uses "http://hl7.org/fhir/4.3/StructureDefinition/Procedure" alias Procedure as target
 uses "http://hl7.org/fhir/4.3/StructureDefinition/Condition" alias Condition as target
 uses "http://hl7.org/fhir/4.3/StructureDefinition/DocumentReference" alias DocumentReference as target
+uses "http://hl7.org/fhir/4.3/StructureDefinition/DeviceUseStatement" alias DeviceUseStatement as target
 
 // ____________________________________ Imports ____________________________________
 
@@ -399,8 +401,37 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_code.coding as fhir_section_coding,
             fhir_section_coding.system = 'http://loinc.org',
             fhir_section_coding.code = '11329-0'
-            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
-            "ImagingSectionHistory";
+                        then {
+        // title, text, author, code and subsections of the section
+        cda_section then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle) "ImagingSectionHistoryContent";
+
+        // Medizinische Geraete und Implantate - kodiert (subsection, LOINC 46264-8):
+        // Medical Device Entry (1.2.40.0.34.6.0.11.3.39) -> Device (Composition.section:history.entry:implants)
+        // and DeviceUseStatement (implantation date, referenced as further entry of history)
+        cda_section.component as cda_history_component then {
+            cda_history_component.section as cda_device_section where (code.where(code = '46264-8' and codeSystem = '2.16.840.1.113883.6.1')) then {
+                 cda_device_section.entry as cda_device_entry then {
+                    cda_device_entry.supply as cda_supply where (templateId.where(root = '1.2.40.0.34.6.0.11.3.39').exists()) ->
+                        fhir_bundle.entry as fhir_bundle_entry_device,
+                        fhir_bundle_entry_device.resource = create('Device') as fhir_device,
+                        fhir_device.id = uuid() as fhir_device_id,
+                        fhir_bundle_entry_device.fullUrl = append('urn:uuid:', fhir_device_id),
+                        fhir_section.entry = create('Reference') as fhir_section_device_entry,
+                        fhir_section_device_entry.reference = append('urn:uuid:', fhir_device_id),
+                        fhir_section_device_entry.type = 'Device',
+                        fhir_bundle.entry as fhir_bundle_entry_dus,
+                        fhir_bundle_entry_dus.resource = create('DeviceUseStatement') as fhir_dus,
+                        fhir_dus.id = uuid() as fhir_dus_id,
+                        fhir_bundle_entry_dus.fullUrl = append('urn:uuid:', fhir_dus_id),
+                        fhir_section.entry = create('Reference') as fhir_section_dus_entry,
+                        fhir_section_dus_entry.reference = append('urn:uuid:', fhir_dus_id),
+                        fhir_section_dus_entry.type = 'DeviceUseStatement'
+                             then CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_device_section, fhir_device, fhir_dus, fhir_patient)
+                                "ImagingHistoryDevice";
+                        } "ImagingHistoryDeviceEntry";
+                    } "ImagingHistoryDeviceSection";
+                } "ImagingHistoryDeviceComponent";
+        } "ImagingSectionHistory";
 
         // Fruehere Untersuchungen und Befunde / prior examinations (LOINC 55114-3) -> Composition.section:comparison (LOINC 18834-2)
         cda_component.section as cda_section where (code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1')) ->
@@ -707,4 +738,86 @@ group CdaImagingObservationMediaToFhirDocumentReference(source cda_media: Observ
             cda_media_value.mediaType as cda_media_type -> fhir_docref_attachment.contentType = cda_media_type "ImagingDocRefContentType";
             cda_media_value -> fhir_docref_attachment.data = (cda_media_value.xmlText) "ImagingDocRefData";
         } "ImagingDocRefContent";
+}
+// _________________________ Entry Level Templates: Medical Device _________________________
+
+// Medical Device Entry (1.2.40.0.34.6.0.11.3.39, adaptation of IPS Medical Device) in the subsection
+// "Medizinische Geraete und Implantate - kodiert" -> Device + DeviceUseStatement (as in the IPS).
+// Leitfaden 3.0.3, 14.3.3.5.7.1: effectiveTime/low = date of supply/implantation, no high (only devices in current use);
+// participantRole/id = serial number or UDI; playingDevice/code = type of device, or nullFlavor with
+// originalText/reference to the narrative if no code is possible.
+group CdaImagingMedicalDeviceToFhirDevice(source cda_supply: Supply, source cda_section: Section, target fhir_device: Device, target fhir_dus: DeviceUseStatement, target fhir_patient: Patient) {
+    // Device.status: the device is in current use
+    cda_supply -> fhir_device.status = 'active' "ImagingDeviceStatus";
+
+    // Device -> Patient
+    cda_supply ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_device.patient = create('Reference') as fhir_device_patient,
+        fhir_device_patient.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_device_patient.type = 'Patient'
+        "ImagingDevicePatient";
+
+    cda_supply.participant as cda_participant where (typeCode = 'DEV') then {
+        cda_participant.participantRole as cda_role then {
+            // participantRole/id (serial number, UDI) -> Device.identifier
+            cda_role.id as cda_role_id where (nullFlavor.exists().not()) ->
+                fhir_device.identifier as fhir_device_identifier
+                then II(cda_role_id, fhir_device_identifier)
+                "ImagingDeviceIdentifier";
+
+            cda_role.playingDevice as cda_playing_device then {
+                // coded device -> Device.type
+                cda_playing_device.code as cda_device_code where (nullFlavor.exists().not()) ->
+                    fhir_device.type = create('CodeableConcept') as fhir_device_type
+                    then CECodeableConcept(cda_device_code, fhir_device_type)
+                    "ImagingDeviceTypeCoded";
+
+                // uncoded device: code/originalText/reference -> Device.type.text (text of the referenced narrative element)
+                cda_playing_device.code as cda_device_code where (nullFlavor.exists()) then {
+                    cda_device_code.originalText as cda_original_text then {
+                        cda_original_text.reference as cda_original_reference then {
+                            cda_section.text as cda_section_text then {
+                                cda_original_reference.value as cda_reference_value ->
+                                    create('Narrative') as fhir_narrative,
+                                    fhir_narrative.div = cda_section_text as fhir_narrative_div,
+                                    create('string') as fhir_string,
+                                    fhir_string = (fhir_narrative_div),
+                                    create('string') as fhir_substring_01,
+                                    fhir_substring_01 = (fhir_string.substring(fhir_string.indexOf(cda_reference_value.substring(1)))),
+                                    create('string') as fhir_substring_02,
+                                    fhir_substring_02 = (fhir_substring_01.substring(fhir_substring_01.indexOf('>') + 1)),
+                                    fhir_device.type = create('CodeableConcept') as fhir_device_type,
+                                    fhir_device_type.text = (fhir_substring_02.substring(0, fhir_substring_02.indexOf('<')).replaceMatches('^\\s+|\\s+$', ''))
+                                    "ImagingDeviceTypeText";
+                            } "ImagingDeviceSectionText";
+                        } "ImagingDeviceOriginalReference";
+                    } "ImagingDeviceOriginalText";
+                } "ImagingDeviceTypeUncoded";
+            } "ImagingDevicePlayingDevice";
+        } "ImagingDeviceParticipantRole";
+    } "ImagingDeviceParticipant";
+
+    // DeviceUseStatement: status, subject, device
+    cda_supply -> fhir_dus.status = 'active' "ImagingDeviceUseStatus";
+    cda_supply ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_dus.subject = create('Reference') as fhir_dus_subject,
+        fhir_dus_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_dus_subject.type = 'Patient'
+        "ImagingDeviceUseSubject";
+    cda_supply ->
+        fhir_device.id as fhir_device_id,
+        fhir_dus.device = create('Reference') as fhir_dus_device,
+        fhir_dus_device.reference = append('urn:uuid:', fhir_device_id),
+        fhir_dus_device.type = 'Device'
+        "ImagingDeviceUseDevice";
+
+    // effectiveTime/low (date of implantation) -> DeviceUseStatement.timingDateTime
+    cda_supply.effectiveTime as cda_supply_time then {
+        cda_supply_time.low as cda_supply_low where (nullFlavor.exists().not()) ->
+            fhir_dus.timing = create('dateTime') as fhir_dus_timing
+            then IVXB_TSDateTime(cda_supply_low, fhir_dus_timing)
+            "ImagingDeviceUseTiming";
+    } "ImagingDeviceUseTime";
 }
