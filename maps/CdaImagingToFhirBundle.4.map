@@ -47,6 +47,7 @@ uses "http://hl7.org/cda/stds/core/StructureDefinition/Act" alias Act as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Participant2" alias Participant2 as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/ObservationMedia" alias ObservationMedia as source
 uses "http://hl7.org/cda/stds/core/StructureDefinition/Supply" alias Supply as source
+uses "http://hl7.org/cda/stds/core/StructureDefinition/Order" alias Order as source
 
 // ____________________________________ Targets ____________________________________
 
@@ -345,6 +346,21 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 fhir_order_coding.system = 'http://loinc.org',
                 fhir_order_coding.code = '55115-0'
                 "ImagingSectionOrderCode";
+
+            // inFulfillmentOf/order (Auftrag, Leitfaden 3.0.3 S. 110-111) -> ServiceRequest (ServiceRequestOrderEuImaging),
+            // referenced as entry of the order section (Composition.section:order.entry:order)
+            cda.inFulfillmentOf as cda_fulfillment then {
+                cda_fulfillment.order as cda_order ->
+                    fhir_bundle.entry as fhir_bundle_entry_order,
+                    fhir_bundle_entry_order.resource = create('ServiceRequest') as fhir_serviceRequest,
+                    fhir_serviceRequest.id = uuid() as fhir_serviceRequest_id,
+                    fhir_bundle_entry_order.fullUrl = append('urn:uuid:', fhir_serviceRequest_id),
+                    fhir_section_order.entry = create('Reference') as fhir_section_order_entry,
+                    fhir_section_order_entry.reference = append('urn:uuid:', fhir_serviceRequest_id),
+                    fhir_section_order_entry.type = 'ServiceRequest'
+                    then CdaImagingOrderToFhirServiceRequest(cda_order, fhir_serviceRequest, fhir_patient)
+                    "ImagingOrderServiceRequest";
+            } "ImagingOrderFulfillment";
         } "ImagingSectionOrder";
 
     // Impression (EU section:impression, LOINC 19005-8, max. 1)
@@ -820,4 +836,42 @@ group CdaImagingMedicalDeviceToFhirDevice(source cda_supply: Supply, source cda_
             then IVXB_TSDateTime(cda_supply_low, fhir_dus_timing)
             "ImagingDeviceUseTiming";
     } "ImagingDeviceUseTime";
+}
+// _________________________ Header: Order _________________________
+
+// inFulfillmentOf/order (In Fulfillment Of, 1.2.40.0.34.6.0.11.1.9) -> ServiceRequest (ServiceRequestOrderEuImaging).
+// order/id is the order number (Auftragsnummer, Leitfaden 3.0.3 S. 111). It is mapped as plain identifier and not as
+// Accession Number: according to the ELGA XDS metadata guide, the Accession Number comes from the XDS-I metadata of
+// the KOS object, not from the CDA document. For the same reason DiagnosticReport.basedOn is not set (its slice
+// requires an Accession Number identifier).
+// Note: ServiceRequestOrderEuImaging (1.0.0-ballot) slices identifier by value on 'type' without a fixed value,
+// so the validator reports "Slicing cannot be evaluated" for every identifier (profile issue, documented in the thesis).
+group CdaImagingOrderToFhirServiceRequest(source cda_order: Order, target fhir_serviceRequest: ServiceRequest, target fhir_patient: Patient) {
+    // order/id -> ServiceRequest.identifier
+    cda_order.id as cda_order_id ->
+        fhir_serviceRequest.identifier as fhir_serviceRequest_identifier
+        then II(cda_order_id, fhir_serviceRequest_identifier)
+        "ImagingOrderIdentifier";
+
+    // the report exists in fulfillment of the order -> status completed; moodCode RQO -> intent order
+    cda_order ->
+        fhir_serviceRequest.status = 'completed',
+        fhir_serviceRequest.intent = 'order'
+        "ImagingOrderStatusIntent";
+
+    // category required by the EU profile: SNOMED CT 363679005 Imaging (procedure)
+    cda_order ->
+        fhir_serviceRequest.category = create('CodeableConcept') as fhir_serviceRequest_category,
+        fhir_serviceRequest_category.coding = create('Coding') as fhir_serviceRequest_category_coding,
+        fhir_serviceRequest_category_coding.system = 'http://snomed.info/sct',
+        fhir_serviceRequest_category_coding.code = '363679005'
+        "ImagingOrderCategory";
+
+    // ServiceRequest -> Patient
+    cda_order ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_serviceRequest.subject = create('Reference') as fhir_serviceRequest_subject,
+        fhir_serviceRequest_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_serviceRequest_subject.type = 'Patient'
+        "ImagingOrderSubject";
 }

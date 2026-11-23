@@ -87332,6 +87332,21 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
             fhir_order_code.coding.append(fhir_order_coding)
             fhir_order_coding.system = uri(value='http://loinc.org')
             fhir_order_coding.code = string(value='55115-0')
+        for cda_fulfillment in cda.inFulfillmentOf or []:
+            cda_order = cda_fulfillment.order
+            if cda_order is not None:
+                fhir_bundle_entry_order = malac.models.fhir.r4.Bundle_Entry()
+                fhir_bundle.entry.append(fhir_bundle_entry_order)
+                fhir_serviceRequest = malac.models.fhir.r4.ServiceRequest()
+                fhir_bundle_entry_order.resource = malac.models.fhir.r4.ResourceContainer(ServiceRequest=fhir_serviceRequest)
+                fhir_serviceRequest_id = string(value=str(uuid.uuid4()))
+                fhir_serviceRequest.id = fhir_serviceRequest_id
+                fhir_bundle_entry_order.fullUrl = uri(value=('urn:uuid:' + fhir_serviceRequest_id.value))
+                fhir_section_order_entry = malac.models.fhir.r4.Reference()
+                fhir_section_order.entry.append(fhir_section_order_entry)
+                fhir_section_order_entry.reference = string(value=('urn:uuid:' + fhir_serviceRequest_id.value))
+                fhir_section_order_entry.type_ = uri(value='ServiceRequest')
+                CdaImagingOrderToFhirServiceRequest(cda_order, fhir_serviceRequest, fhir_patient)
     if [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if (v1.code == '67781-5' and v1.codeSystem == '2.16.840.1.113883.6.1')]:
         fhir_section_impression = malac.models.fhir.r4.Composition_Section()
         fhir_composition.section.append(fhir_section_impression)
@@ -87754,6 +87769,27 @@ def CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_section, fhir_device, fh
                 fhir_dus_timing = malac.models.fhir.r4.dateTime()
                 fhir_dus.timingDateTime = fhir_dus_timing
                 IVXB_TSDateTime(cda_supply_low, fhir_dus_timing)
+
+def CdaImagingOrderToFhirServiceRequest(cda_order, fhir_serviceRequest, fhir_patient):
+    for cda_order_id in cda_order.id or []:
+        fhir_serviceRequest_identifier = malac.models.fhir.r4.Identifier()
+        fhir_serviceRequest.identifier.append(fhir_serviceRequest_identifier)
+        II(cda_order_id, fhir_serviceRequest_identifier)
+    fhir_serviceRequest.status = string(value='completed')
+    fhir_serviceRequest.intent = string(value='order')
+    fhir_serviceRequest_category = malac.models.fhir.r4.CodeableConcept()
+    fhir_serviceRequest.category.append(fhir_serviceRequest_category)
+    fhir_serviceRequest_category_coding = malac.models.fhir.r4.Coding()
+    fhir_serviceRequest_category.coding.append(fhir_serviceRequest_category_coding)
+    fhir_serviceRequest_category_coding.system = uri(value='http://snomed.info/sct')
+    fhir_serviceRequest_category_coding.code = string(value='363679005')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_serviceRequest_subject = malac.models.fhir.r4.Reference()
+    fhir_serviceRequest.subject = fhir_serviceRequest_subject
+    fhir_serviceRequest_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_serviceRequest_subject.type_ = uri(value='Patient')
 
 def unpack_container(resource_container):
     if resource_container is None:
