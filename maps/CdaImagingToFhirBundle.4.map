@@ -431,6 +431,27 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 "ImagingReferrerServiceRequest";
         } "ImagingSectionOrder";
 
+    // Imaging study (EU section:imagingstudy, LOINC 18726-0, 1..1, entry:imagingstudy 1..*; BundleReportEuImaging requires an ImagingStudy).
+    // An ELGA CDA has no Study Instance UID: the report is linked to the images through the Accession Number in the
+    // XDS-I metadata (Leitfaden 3.0.3 S. 19). Following HL7 Europe "Missing Data" (required element without value ->
+    // Data Absent Reason) and the recommendation of ELGA GmbH (24.11.2026), an ImagingStudy is created whose
+    // Study Instance UID carries the data-absent-reason 'unsupported' (the CDA document cannot carry this value).
+    cda_structuredBody ->
+        fhir_composition.section as fhir_section_imagingstudy,
+        fhir_section_imagingstudy.code = create('CodeableConcept') as fhir_imagingstudy_code,
+        fhir_imagingstudy_code.coding = create('Coding') as fhir_imagingstudy_coding,
+        fhir_imagingstudy_coding.system = 'http://loinc.org',
+        fhir_imagingstudy_coding.code = '18726-0',
+        fhir_bundle.entry as fhir_bundle_entry_study,
+        fhir_bundle_entry_study.resource = create('ImagingStudy') as fhir_imagingStudy,
+        fhir_imagingStudy.id = uuid() as fhir_imagingStudy_id,
+        fhir_bundle_entry_study.fullUrl = append('urn:uuid:', fhir_imagingStudy_id),
+        fhir_section_imagingstudy.entry = create('Reference') as fhir_section_imagingstudy_entry,
+        fhir_section_imagingstudy_entry.reference = append('urn:uuid:', fhir_imagingStudy_id),
+        fhir_section_imagingstudy_entry.type = 'ImagingStudy'
+        then CdaImagingToFhirImagingStudyPlaceholder(cda, fhir_imagingStudy, fhir_patient)
+        "ImagingSectionImagingStudy";
+
     // Impression (EU section:impression, LOINC 19005-8, max. 1)
     // Case 1: the CDA contains the section Zusammenfassende Beurteilung (LOINC 67781-5). It is the overall
     // assessment of the findings and becomes the impression section (EU code 19005-8 plus the original code).
@@ -701,6 +722,40 @@ group CdaImagingSectionToFhirSection(source cda_section: Section, target fhir_se
             "ImagingSubSection";
     } "ImagingSubSections";
 } 
+
+// _________________________ Imaging Study (placeholder) _________________________
+
+// ImagingStudy for the section imagingstudy when the CDA has no Study Instance UID (see rule ImagingSectionImagingStudy).
+// identifier:studyInstanceUid (StudyInstanceUidIdentifierEuImaging): type DCM 110180, system urn:dicom:uid,
+// value 1..1 -> data-absent-reason 'unsupported'. status 'unknown': the CDA says nothing about the state of the study.
+group CdaImagingToFhirImagingStudyPlaceholder(source cda: ClinicalDocument, target fhir_imagingStudy: ImagingStudy, target fhir_patient: Patient) {
+    cda ->
+        fhir_imagingStudy.status = 'unknown'
+        "ImagingStudyStatus";
+
+    cda ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_imagingStudy.subject = create('Reference') as fhir_imagingStudy_subject,
+        fhir_imagingStudy_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_imagingStudy_subject.type = 'Patient'
+        "ImagingStudySubject";
+
+    cda ->
+        fhir_imagingStudy.identifier as fhir_study_identifier,
+        fhir_study_identifier.type = create('CodeableConcept') as fhir_study_identifier_type,
+        fhir_study_identifier_type.coding = create('Coding') as fhir_study_identifier_type_coding,
+        fhir_study_identifier_type_coding.system = 'http://dicom.nema.org/resources/ontology/DCM',
+        fhir_study_identifier_type_coding.code = '110180',
+        fhir_study_identifier_type_coding.display = 'Study Instance UID',
+        fhir_study_identifier.system = 'urn:dicom:uid',
+        fhir_study_identifier.value as fhir_study_identifier_value,
+        fhir_study_identifier_value.extension as fhir_study_identifier_value_extension,
+        fhir_study_identifier_value_extension.url = 'http://hl7.org/fhir/StructureDefinition/data-absent-reason',
+        fhir_study_identifier_value_extension.value = create('code') as fhir_study_identifier_value_code,
+        fhir_study_identifier_value_code.value = 'unsupported'
+        "ImagingStudyInstanceUidAbsent";
+}
+
 // _________________________ Entry Level Templates: Radiation Dose _________________________
 
 // Radiation dose (templateId 1.2.40.0.34.6.0.11.3.183, e.g. DCM 113813 CT Dose Length Product Total)
