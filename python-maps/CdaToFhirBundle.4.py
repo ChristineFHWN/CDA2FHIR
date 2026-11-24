@@ -87497,17 +87497,42 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
         if cda_section is not None:
             if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == 'BEIL' and v1.codeSystem == '1.2.40.0.34.5.40')]):
                 for cda_entry in cda_section.entry or []:
-                    cda_media = cda_entry.observationMedia
-                    if cda_media is not None:
-                        if [v1 for v1 in fhirpath_utils.get(cda_media,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.19']:
+                    cda_observationMedia = cda_entry.observationMedia
+                    if cda_observationMedia is not None:
+                        if [v1 for v1 in fhirpath_utils.get(cda_observationMedia,'templateId') if v1.root == '1.2.40.0.34.6.0.11.3.19']:
                             fhir_bundle_entry_docref = malac.models.fhir.r4.Bundle_Entry()
                             fhir_bundle.entry.append(fhir_bundle_entry_docref)
-                            fhir_docref = malac.models.fhir.r4.DocumentReference()
-                            fhir_bundle_entry_docref.resource = malac.models.fhir.r4.ResourceContainer(DocumentReference=fhir_docref)
-                            fhir_docref_id = string(value=str(uuid.uuid4()))
-                            fhir_docref.id = fhir_docref_id
-                            fhir_bundle_entry_docref.fullUrl = uri(value=('urn:uuid:' + fhir_docref_id.value))
-                            CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient)
+                            fhir_documentReference = malac.models.fhir.r4.DocumentReference()
+                            fhir_bundle_entry_docref.resource = malac.models.fhir.r4.ResourceContainer(DocumentReference=fhir_documentReference)
+                            fhir_documentReference_id = string(value=str(uuid.uuid4()))
+                            fhir_documentReference.id = fhir_documentReference_id
+                            fhir_bundle_entry_docref.fullUrl = uri(value=('urn:uuid:' + fhir_documentReference_id.value))
+                            fhir_diagnosticReport_media = malac.models.fhir.r4.DiagnosticReport_Media()
+                            fhir_diagnosticReport.media.append(fhir_diagnosticReport_media)
+                            fhir_diagnosticReport_media_link = malac.models.fhir.r4.Reference()
+                            fhir_diagnosticReport_media.link = fhir_diagnosticReport_media_link
+                            fhir_diagnosticReport_media_link.display = string(value='Instead of a reference to a Media resource, a DocumentReference resource is linked through the cross-version extension \'link\'.')
+                            fhir_diagnosticReport_media_link_extension = malac.models.fhir.r4.Extension()
+                            fhir_diagnosticReport_media_link.extension.append(fhir_diagnosticReport_media_link_extension)
+                            fhir_diagnosticReport_media_link_extension.url = 'http://hl7.org/fhir/StructureDefinition/alternate-reference'
+                            fhir_diagnosticReport_media_link_extension_reference = malac.models.fhir.r4.Reference()
+                            fhir_diagnosticReport_media_link_extension.valueReference = fhir_diagnosticReport_media_link_extension_reference
+                            fhir_diagnosticReport_media_link_extension_reference.reference = string(value=('urn:uuid:' + fhir_documentReference_id.value))
+                            fhir_diagnosticReport_media_link_extension_reference.type_ = uri(value='DocumentReference')
+                            CdaObservationMediaToFhirDocumentReference(cda_observationMedia, fhir_documentReference, fhir_patient, fhir_bundle)
+                            for cda_section_author in cda_section.author or []:
+                                fhir_bundle_entry_author = malac.models.fhir.r4.Bundle_Entry()
+                                fhir_bundle.entry.append(fhir_bundle_entry_author)
+                                fhir_practitionerRole = malac.models.fhir.r4.PractitionerRole()
+                                fhir_bundle_entry_author.resource = malac.models.fhir.r4.ResourceContainer(PractitionerRole=fhir_practitionerRole)
+                                fhir_practitionerRole_id = string(value=str(uuid.uuid4()))
+                                fhir_practitionerRole.id = fhir_practitionerRole_id
+                                fhir_bundle_entry_author.fullUrl = uri(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+                                fhir_documentReference_author = malac.models.fhir.r4.Reference()
+                                fhir_documentReference.author.append(fhir_documentReference_author)
+                                fhir_documentReference_author.reference = string(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+                                fhir_documentReference_author.type_ = uri(value='PractitionerRole')
+                                CdaAuthorToFhirPractitionerRole(cda_section_author, fhir_practitionerRole, fhir_bundle)
 
 def CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle):
     CdaSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
@@ -87678,26 +87703,41 @@ def CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, f
                 fhir_condition_recorded = fhir_condition.recordedDate
                 IVXB_TSDateTime(cda_concern_low, fhir_condition_recorded)
 
-def CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient):
-    fhir_docref.status = string(value='current')
+def CdaObservationMediaToFhirDocumentReference(cda_observationMedia, fhir_documentReference, fhir_patient, fhir_bundle):
+    for id_ in cda_observationMedia.id or []:
+        fhir_documentReference.identifier.append(malac.models.fhir.r4.Identifier())
+        II(id_, fhir_documentReference.identifier[-1])
+    fhir_documentReference.status = string(value='current')
+    fhir_documentReference_subject_reference = malac.models.fhir.r4.Reference()
+    fhir_documentReference.subject = fhir_documentReference_subject_reference
     if fhir_patient.id is None:
         fhir_patient.id = malac.models.fhir.r4.string()
     fhir_patient_id = fhir_patient.id
-    fhir_docref_subject = malac.models.fhir.r4.Reference()
-    fhir_docref.subject = fhir_docref_subject
-    fhir_docref_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
-    fhir_docref_subject.type_ = uri(value='Patient')
-    cda_media_value = cda_media.value
-    if cda_media_value is not None:
-        fhir_docref_content = malac.models.fhir.r4.DocumentReference_Content()
-        fhir_docref.content.append(fhir_docref_content)
-        if fhir_docref_content.attachment is None:
-            fhir_docref_content.attachment = malac.models.fhir.r4.Attachment()
-        fhir_docref_attachment = fhir_docref_content.attachment
-        cda_media_type = cda_media_value.mediaType
-        if cda_media_type is not None:
-            fhir_docref_attachment.contentType = string(value=cda_media_type)
-        fhir_docref_attachment.data = base64Binary(value=re.sub("[^a-zA-Z0-9+/=]{1,}","",fhirpath.single(fhirpath_utils.get(cda_media_value,'valueOf_',strip=True))))
+    fhir_documentReference_subject_reference.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_documentReference_subject_reference.type_ = uri(value='Patient')
+    cda_observationMedia_value = cda_observationMedia.value
+    if cda_observationMedia_value is not None:
+        fhir_documentReference_content = malac.models.fhir.r4.DocumentReference_Content()
+        fhir_documentReference.content.append(fhir_documentReference_content)
+        fhir_documentReference_attachment = malac.models.fhir.r4.Attachment()
+        fhir_documentReference_content.attachment = fhir_documentReference_attachment
+        cda_mediaType = cda_observationMedia_value.mediaType
+        if cda_mediaType is not None:
+            fhir_documentReference_attachment.contentType = string(value=cda_mediaType)
+        fhir_documentReference_attachment.data = base64Binary(value=re.sub("[^a-zA-Z0-9+/=]{1,}","",fhirpath.single(fhirpath_utils.get(cda_observationMedia_value,'valueOf_',strip=True))))
+    for cda_observationMedia_author in cda_observationMedia.author or []:
+        fhir_bundle_entry = malac.models.fhir.r4.Bundle_Entry()
+        fhir_bundle.entry.append(fhir_bundle_entry)
+        fhir_practitionerRole = malac.models.fhir.r4.PractitionerRole()
+        fhir_bundle_entry.resource = malac.models.fhir.r4.ResourceContainer(PractitionerRole=fhir_practitionerRole)
+        fhir_practitionerRole_id = string(value=str(uuid.uuid4()))
+        fhir_practitionerRole.id = fhir_practitionerRole_id
+        fhir_bundle_entry.fullUrl = uri(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+        fhir_documentReference_author_reference = malac.models.fhir.r4.Reference()
+        fhir_documentReference.author.append(fhir_documentReference_author_reference)
+        fhir_documentReference_author_reference.reference = string(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+        fhir_documentReference_author_reference.type_ = uri(value='PractitionerRole')
+        CdaAuthorToFhirPractitionerRole(cda_observationMedia_author, fhir_practitionerRole, fhir_bundle)
 
 def CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_section, fhir_device, fhir_dus, fhir_patient):
     fhir_device.status = string(value='active')

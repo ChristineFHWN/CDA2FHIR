@@ -509,18 +509,44 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 } "ImagingDiagnosisEntry";
             } "ImagingSectionDiagnosis";
         // Beilagen / attachments (ELGA_Sections BEIL): Eingebettetes Objekt Entry (1.2.40.0.34.6.0.11.3.19)
-        // -> DocumentReference (recommended by ELGA GmbH, 20.11.2026: not Media, not dropped).
-        // Not referenced yet: whether it is linked via Composition.section or via an extension on the
-        // DiagnosticReport is still open (ELGA GmbH).
+        // -> DocumentReference, linked from DiagnosticReport.media.link via the extension alternate-reference,
+        // as in the HL7 EU Laboratory DiagnosticReport and MyHealth@EU LRR (ELGA GmbH, 23.11.2026).
+        // DiagnosticReportEuImaging still only allows Reference(Media) in media.link; ELGA GmbH raises this with HL7 Europe.
+        // Only the author is mapped (observationMedia author and section author -> DocumentReference.author);
+        // participant, performer and informant are left out (ELGA GmbH, 23.11.2026).
         cda_component.section as cda_section where (code.where(code = 'BEIL' and codeSystem = '1.2.40.0.34.5.40')) then {
             cda_section.entry as cda_entry then {
-                cda_entry.observationMedia as cda_media where (templateId.where(root = '1.2.40.0.34.6.0.11.3.19').exists()) ->
+                cda_entry.observationMedia as cda_observationMedia where (templateId.where(root = '1.2.40.0.34.6.0.11.3.19').exists()) ->
                     fhir_bundle.entry as fhir_bundle_entry_docref,
-                    fhir_bundle_entry_docref.resource = create('DocumentReference') as fhir_docref,
-                    fhir_docref.id = uuid() as fhir_docref_id,
-                    fhir_bundle_entry_docref.fullUrl = append('urn:uuid:', fhir_docref_id)
-                    then CdaImagingObservationMediaToFhirDocumentReference(cda_media, fhir_docref, fhir_patient)
-                    "ImagingAttachmentDocumentReference";
+                    fhir_bundle_entry_docref.resource = create('DocumentReference') as fhir_documentReference,
+                    fhir_documentReference.id = uuid() as fhir_documentReference_id,
+                    fhir_bundle_entry_docref.fullUrl = append('urn:uuid:', fhir_documentReference_id),
+
+                    // link.reference is not used, link.display is mandatory in the EU Lab profile,
+                    // the pointer to the DocumentReference goes through the extension alternate-reference
+                    fhir_diagnosticReport.media as fhir_diagnosticReport_media,
+                    fhir_diagnosticReport_media.link = create('Reference') as fhir_diagnosticReport_media_link,
+                    fhir_diagnosticReport_media_link.display = 'Instead of a reference to a Media resource, a DocumentReference resource is linked through the cross-version extension \'link\'.',
+                    fhir_diagnosticReport_media_link.extension as fhir_diagnosticReport_media_link_extension,
+                    fhir_diagnosticReport_media_link_extension.url = 'http://hl7.org/fhir/StructureDefinition/alternate-reference',
+                    fhir_diagnosticReport_media_link_extension.value = create('Reference') as fhir_diagnosticReport_media_link_extension_reference,
+                    fhir_diagnosticReport_media_link_extension_reference.reference = append('urn:uuid:', fhir_documentReference_id),
+                    fhir_diagnosticReport_media_link_extension_reference.type = 'DocumentReference'
+                    then {
+                        cda_observationMedia then CdaObservationMediaToFhirDocumentReference(cda_observationMedia, fhir_documentReference, fhir_patient, fhir_bundle) "ImagingAttachmentDocumentReference";
+
+                        // author of the Beilagen section -> DocumentReference.author (PractitionerRole, as in CdaSectionToFhirSection)
+                        cda_section.author as cda_section_author ->
+                            fhir_bundle.entry as fhir_bundle_entry_author,
+                            fhir_bundle_entry_author.resource = create('PractitionerRole') as fhir_practitionerRole,
+                            fhir_practitionerRole.id = uuid() as fhir_practitionerRole_id,
+                            fhir_bundle_entry_author.fullUrl = append('urn:uuid:', fhir_practitionerRole_id),
+                            fhir_documentReference.author = create('Reference') as fhir_documentReference_author,
+                            fhir_documentReference_author.reference = append('urn:uuid:', fhir_practitionerRole_id),
+                            fhir_documentReference_author.type = 'PractitionerRole'
+                            then CdaAuthorToFhirPractitionerRole(cda_section_author, fhir_practitionerRole, fhir_bundle)
+                            "ImagingAttachmentSectionAuthor";
+                    } "ImagingAttachmentDocumentReferenceLinked";
             } "ImagingAttachmentEntry";
         } "ImagingSectionAttachments";
     } "ImagingSections";
@@ -733,27 +759,46 @@ group CdaImagingProblemToFhirCondition(source cda_concern: Act, source cda_probl
 // _________________________ Entry Level Templates: Attachments _________________________
 
 // Eingebettetes Objekt Entry (1.2.40.0.34.6.0.11.3.19), e.g. a PDF in the section Beilagen -> DocumentReference.
-// The base64 content is taken over unchanged as content.attachment.data.
-group CdaImagingObservationMediaToFhirDocumentReference(source cda_media: ObservationMedia, target fhir_docref: DocumentReference, target fhir_patient: Patient) {
-    // DocumentReference.status: the attachment is the current version
-    cda_media -> fhir_docref.status = 'current' "ImagingDocRefStatus";
+// Taken over from CdaLabToFhirBundle.4.map (HL7Austria/CDA2FHIR PR#237, branch myhealtheu-dev),
+// as recommended by ELGA GmbH (23.11.2026). Added: observationMedia/author -> DocumentReference.author.
+// If PR#237 is merged into this branch, this copy has to be removed (same group name).
+group CdaObservationMediaToFhirDocumentReference(source cda_observationMedia : ObservationMedia, target fhir_documentReference : DocumentReference, target fhir_patient : Patient, target fhir_bundle : Bundle){
 
-    // DocumentReference -> Patient
-    cda_media ->
-        fhir_patient.id as fhir_patient_id,
-        fhir_docref.subject = create('Reference') as fhir_docref_subject,
-        fhir_docref_subject.reference = append('urn:uuid:', fhir_patient_id),
-        fhir_docref_subject.type = 'Patient'
-        "ImagingDocRefSubject";
+  cda_observationMedia.id -> fhir_documentReference.identifier;
 
-    // observationMedia/value (mediaType, base64 data) -> DocumentReference.content.attachment
-    cda_media.value as cda_media_value ->
-        fhir_docref.content as fhir_docref_content,
-        fhir_docref_content.attachment as fhir_docref_attachment
-        then {
-            cda_media_value.mediaType as cda_media_type -> fhir_docref_attachment.contentType = cda_media_type "ImagingDocRefContentType";
-            cda_media_value -> fhir_docref_attachment.data = (cda_media_value.xmlText) "ImagingDocRefData";
-        } "ImagingDocRefContent";
+  cda_observationMedia -> fhir_documentReference.status = 'current';
+
+  cda_observationMedia ->
+    fhir_documentReference.subject = create('Reference') as fhir_documentReference_subject_reference,
+    fhir_patient.id as fhir_patient_id,
+    fhir_documentReference_subject_reference.reference = append('urn:uuid:', fhir_patient_id),
+    fhir_documentReference_subject_reference.type = 'Patient'
+    "FhirDocumentReferenceSubject";
+
+  cda_observationMedia.value as cda_observationMedia_value ->
+    fhir_documentReference.content as fhir_documentReference_content,
+    fhir_documentReference_content.attachment = create('Attachment') as fhir_documentReference_attachment then {
+
+      // cda_observationMedia.value@mediaType
+      cda_observationMedia_value.mediaType as cda_mediaType -> fhir_documentReference_attachment.contentType = cda_mediaType;
+      // cda_observationMedia.value
+      cda_observationMedia_value -> fhir_documentReference_attachment.data = (cda_observationMedia_value.xmlText) "CdaObservationMediaValueToFhirAttachmentData";
+    };
+
+  // observationMedia.author -> DocumentReference.author (PractitionerRole, as for the section author in CdaSectionToFhirSection)
+  cda_observationMedia.author as cda_observationMedia_author ->
+    fhir_bundle.entry as fhir_bundle_entry,
+    fhir_bundle_entry.resource = create('PractitionerRole') as fhir_practitionerRole,
+    fhir_practitionerRole.id = uuid() as fhir_practitionerRole_id,
+    fhir_bundle_entry.fullUrl = append('urn:uuid:', fhir_practitionerRole_id),
+    fhir_documentReference.author = create('Reference') as fhir_documentReference_author_reference,
+    fhir_documentReference_author_reference.reference = append('urn:uuid:', fhir_practitionerRole_id),
+    fhir_documentReference_author_reference.type = 'PractitionerRole'
+    then CdaAuthorToFhirPractitionerRole(cda_observationMedia_author, fhir_practitionerRole, fhir_bundle)
+    "CdaObservationMediaAuthorToFhirDocumentReferenceAuthor";
+
+  // Not mapped (ELGA GmbH, 23.11.2026, Mapping Methodology "Prioritize the agreed core data set and leave out
+  // what is hard and of dubious use"): observationMedia.performer, .informant and .participant.
 }
 // _________________________ Entry Level Templates: Medical Device _________________________
 
