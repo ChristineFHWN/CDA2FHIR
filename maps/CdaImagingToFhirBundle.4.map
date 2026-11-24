@@ -348,7 +348,7 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 "ImagingSectionOrderCode";
 
             // inFulfillmentOf/order (Auftrag, Leitfaden 3.0.3 S. 110-111) -> ServiceRequest (ServiceRequestOrderEuImaging),
-            // referenced as entry of the order section (Composition.section:order.entry:order)
+            // referenced as entry of the order section (Composition.section:order.entry:order); order/id -> identifier
             cda.inFulfillmentOf as cda_fulfillment then {
                 cda_fulfillment.order as cda_order ->
                     fhir_bundle.entry as fhir_bundle_entry_order,
@@ -358,9 +358,28 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                     fhir_section_order.entry = create('Reference') as fhir_section_order_entry,
                     fhir_section_order_entry.reference = append('urn:uuid:', fhir_serviceRequest_id),
                     fhir_section_order_entry.type = 'ServiceRequest'
-                    then CdaImagingOrderToFhirServiceRequest(cda_order, fhir_serviceRequest, fhir_patient)
-                    "ImagingOrderServiceRequest";
+                    then {
+                        cda_order.id as cda_order_id ->
+                            fhir_serviceRequest.identifier as fhir_serviceRequest_identifier
+                            then II(cda_order_id, fhir_serviceRequest_identifier)
+                            "ImagingOrderIdentifier";
+                        cda then CdaImagingRequestToFhirServiceRequest(cda, fhir_serviceRequest, fhir_patient, fhir_bundle) "ImagingOrderServiceRequestContent";
+                    } "ImagingOrderServiceRequest";
             } "ImagingOrderFulfillment";
+
+            // No inFulfillmentOf, but a referring physician (Zuweiser, participant REF, 1.2.40.0.34.6.0.11.1.21,
+            // Leitfaden 3.0.3 S. 107-110): a ServiceRequest without identifier is created so that the referrer
+            // is kept as ServiceRequest.requester (decision 24.11.2026).
+            cda where (inFulfillmentOf.order.exists().not() and participant.where(templateId.where(root = '1.2.40.0.34.6.0.11.1.21').exists()).exists()) ->
+                fhir_bundle.entry as fhir_bundle_entry_request,
+                fhir_bundle_entry_request.resource = create('ServiceRequest') as fhir_serviceRequest_ref,
+                fhir_serviceRequest_ref.id = uuid() as fhir_serviceRequest_ref_id,
+                fhir_bundle_entry_request.fullUrl = append('urn:uuid:', fhir_serviceRequest_ref_id),
+                fhir_section_order.entry = create('Reference') as fhir_section_order_entry_ref,
+                fhir_section_order_entry_ref.reference = append('urn:uuid:', fhir_serviceRequest_ref_id),
+                fhir_section_order_entry_ref.type = 'ServiceRequest'
+                then CdaImagingRequestToFhirServiceRequest(cda, fhir_serviceRequest_ref, fhir_patient, fhir_bundle)
+                "ImagingReferrerServiceRequest";
         } "ImagingSectionOrder";
 
     // Impression (EU section:impression, LOINC 19005-8, max. 1)
@@ -891,21 +910,17 @@ group CdaImagingMedicalDeviceToFhirDevice(source cda_supply: Supply, source cda_
 // requires an Accession Number identifier).
 // Note: ServiceRequestOrderEuImaging (1.0.0-ballot) slices identifier by value on 'type' without a fixed value,
 // so the validator reports "Slicing cannot be evaluated" for every identifier (profile issue, documented in the thesis).
-group CdaImagingOrderToFhirServiceRequest(source cda_order: Order, target fhir_serviceRequest: ServiceRequest, target fhir_patient: Patient) {
-    // order/id -> ServiceRequest.identifier
-    cda_order.id as cda_order_id ->
-        fhir_serviceRequest.identifier as fhir_serviceRequest_identifier
-        then II(cda_order_id, fhir_serviceRequest_identifier)
-        "ImagingOrderIdentifier";
-
-    // the report exists in fulfillment of the order -> status completed; moodCode RQO -> intent order
-    cda_order ->
+// Common content of the ServiceRequest (ServiceRequestOrderEuImaging), with or without inFulfillmentOf/order.
+// The order number (order/id) is mapped in the calling rule.
+group CdaImagingRequestToFhirServiceRequest(source cda: ClinicalDocument, target fhir_serviceRequest: ServiceRequest, target fhir_patient: Patient, target fhir_bundle: Bundle) {
+    // the report exists, so the request is fulfilled -> status completed; intent order
+    cda ->
         fhir_serviceRequest.status = 'completed',
         fhir_serviceRequest.intent = 'order'
         "ImagingOrderStatusIntent";
 
     // category required by the EU profile: SNOMED CT 363679005 Imaging (procedure)
-    cda_order ->
+    cda ->
         fhir_serviceRequest.category = create('CodeableConcept') as fhir_serviceRequest_category,
         fhir_serviceRequest_category.coding = create('Coding') as fhir_serviceRequest_category_coding,
         fhir_serviceRequest_category_coding.system = 'http://snomed.info/sct',
@@ -913,10 +928,25 @@ group CdaImagingOrderToFhirServiceRequest(source cda_order: Order, target fhir_s
         "ImagingOrderCategory";
 
     // ServiceRequest -> Patient
-    cda_order ->
+    cda ->
         fhir_patient.id as fhir_patient_id,
         fhir_serviceRequest.subject = create('Reference') as fhir_serviceRequest_subject,
         fhir_serviceRequest_subject.reference = append('urn:uuid:', fhir_patient_id),
         fhir_serviceRequest_subject.type = 'Patient'
         "ImagingOrderSubject";
+
+    // Zuweiser (participant REF, 1.2.40.0.34.6.0.11.1.21, Leitfaden 3.0.3 S. 107-110) -> ServiceRequest.requester
+    // (PractitionerRole with Practitioner and Organization, ELGA group CdaAssociatedEntityToFhirPractitionerRole)
+    cda.participant as cda_referrer where (templateId.where(root = '1.2.40.0.34.6.0.11.1.21').exists()) then {
+        cda_referrer.associatedEntity as cda_referrer_entity ->
+            fhir_bundle.entry as fhir_bundle_entry_referrer,
+            fhir_bundle_entry_referrer.resource = create('PractitionerRole') as fhir_practitionerRole,
+            fhir_practitionerRole.id = uuid() as fhir_practitionerRole_id,
+            fhir_bundle_entry_referrer.fullUrl = append('urn:uuid:', fhir_practitionerRole_id),
+            fhir_serviceRequest.requester = create('Reference') as fhir_serviceRequest_requester,
+            fhir_serviceRequest_requester.reference = append('urn:uuid:', fhir_practitionerRole_id),
+            fhir_serviceRequest_requester.type = 'PractitionerRole'
+            then CdaAssociatedEntityToFhirPractitionerRole(cda_referrer_entity, fhir_practitionerRole, fhir_bundle)
+            "ImagingOrderRequester";
+    } "ImagingOrderReferrer";
 }
