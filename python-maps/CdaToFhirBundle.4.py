@@ -87308,6 +87308,39 @@ def CdaImagingHeaderToFhir(cda, fhir_composition, fhir_patient, fhir_bundle, fhi
         if len(fhirpath_utils.get(cda,'documentationOf')) > 1:
             CdaImagingDoseToFhirObservationUnlinked(cda, fhir_bundle, fhir_patient)
 
+def CdaImagingRequestToFhirServiceRequest(cda, fhir_serviceRequest, fhir_patient, fhir_bundle):
+    fhir_serviceRequest.status = string(value='completed')
+    fhir_serviceRequest.intent = string(value='order')
+    fhir_serviceRequest_category = malac.models.fhir.r4.CodeableConcept()
+    fhir_serviceRequest.category.append(fhir_serviceRequest_category)
+    fhir_serviceRequest_category_coding = malac.models.fhir.r4.Coding()
+    fhir_serviceRequest_category.coding.append(fhir_serviceRequest_category_coding)
+    fhir_serviceRequest_category_coding.system = uri(value='http://snomed.info/sct')
+    fhir_serviceRequest_category_coding.code = string(value='363679005')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_serviceRequest_subject = malac.models.fhir.r4.Reference()
+    fhir_serviceRequest.subject = fhir_serviceRequest_subject
+    fhir_serviceRequest_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_serviceRequest_subject.type_ = uri(value='Patient')
+    for cda_referrer in cda.participant or []:
+        if [v1 for v1 in fhirpath_utils.get(cda_referrer,'templateId') if v1.root == '1.2.40.0.34.6.0.11.1.21']:
+            cda_referrer_entity = cda_referrer.associatedEntity
+            if cda_referrer_entity is not None:
+                fhir_bundle_entry_referrer = malac.models.fhir.r4.Bundle_Entry()
+                fhir_bundle.entry.append(fhir_bundle_entry_referrer)
+                fhir_practitionerRole = malac.models.fhir.r4.PractitionerRole()
+                fhir_bundle_entry_referrer.resource = malac.models.fhir.r4.ResourceContainer(PractitionerRole=fhir_practitionerRole)
+                fhir_practitionerRole_id = string(value=str(uuid.uuid4()))
+                fhir_practitionerRole.id = fhir_practitionerRole_id
+                fhir_bundle_entry_referrer.fullUrl = uri(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+                fhir_serviceRequest_requester = malac.models.fhir.r4.Reference()
+                fhir_serviceRequest.requester = fhir_serviceRequest_requester
+                fhir_serviceRequest_requester.reference = string(value=('urn:uuid:' + fhir_practitionerRole_id.value))
+                fhir_serviceRequest_requester.type_ = uri(value='PractitionerRole')
+                CdaAssociatedEntityToFhirPractitionerRole(cda_referrer_entity, fhir_practitionerRole, fhir_bundle)
+
 def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_diagnosticReport, fhir_bundle):
     CdaBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, fhir_patient, fhir_bundle)
     if [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if ((v1.code == '55115-0' or v1.code == '46239-0') and v1.codeSystem == '2.16.840.1.113883.6.1')]:
@@ -87826,39 +87859,6 @@ def CdaImagingMedicalDeviceToFhirDevice(cda_supply, cda_section, fhir_device, fh
                 fhir_dus_timing = malac.models.fhir.r4.dateTime()
                 fhir_dus.timingDateTime = fhir_dus_timing
                 IVXB_TSDateTime(cda_supply_low, fhir_dus_timing)
-
-def CdaImagingRequestToFhirServiceRequest(cda, fhir_serviceRequest, fhir_patient, fhir_bundle):
-    fhir_serviceRequest.status = string(value='completed')
-    fhir_serviceRequest.intent = string(value='order')
-    fhir_serviceRequest_category = malac.models.fhir.r4.CodeableConcept()
-    fhir_serviceRequest.category.append(fhir_serviceRequest_category)
-    fhir_serviceRequest_category_coding = malac.models.fhir.r4.Coding()
-    fhir_serviceRequest_category.coding.append(fhir_serviceRequest_category_coding)
-    fhir_serviceRequest_category_coding.system = uri(value='http://snomed.info/sct')
-    fhir_serviceRequest_category_coding.code = string(value='363679005')
-    if fhir_patient.id is None:
-        fhir_patient.id = malac.models.fhir.r4.string()
-    fhir_patient_id = fhir_patient.id
-    fhir_serviceRequest_subject = malac.models.fhir.r4.Reference()
-    fhir_serviceRequest.subject = fhir_serviceRequest_subject
-    fhir_serviceRequest_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
-    fhir_serviceRequest_subject.type_ = uri(value='Patient')
-    for cda_referrer in cda.participant or []:
-        if [v1 for v1 in fhirpath_utils.get(cda_referrer,'templateId') if v1.root == '1.2.40.0.34.6.0.11.1.21']:
-            cda_referrer_entity = cda_referrer.associatedEntity
-            if cda_referrer_entity is not None:
-                fhir_bundle_entry_referrer = malac.models.fhir.r4.Bundle_Entry()
-                fhir_bundle.entry.append(fhir_bundle_entry_referrer)
-                fhir_practitionerRole = malac.models.fhir.r4.PractitionerRole()
-                fhir_bundle_entry_referrer.resource = malac.models.fhir.r4.ResourceContainer(PractitionerRole=fhir_practitionerRole)
-                fhir_practitionerRole_id = string(value=str(uuid.uuid4()))
-                fhir_practitionerRole.id = fhir_practitionerRole_id
-                fhir_bundle_entry_referrer.fullUrl = uri(value=('urn:uuid:' + fhir_practitionerRole_id.value))
-                fhir_serviceRequest_requester = malac.models.fhir.r4.Reference()
-                fhir_serviceRequest.requester = fhir_serviceRequest_requester
-                fhir_serviceRequest_requester.reference = string(value=('urn:uuid:' + fhir_practitionerRole_id.value))
-                fhir_serviceRequest_requester.type_ = uri(value='PractitionerRole')
-                CdaAssociatedEntityToFhirPractitionerRole(cda_referrer_entity, fhir_practitionerRole, fhir_bundle)
 
 def unpack_container(resource_container):
     if resource_container is None:
