@@ -89,6 +89,8 @@ def CdaToFhirBundle(cda, fhir_bundle):
                 CdaEimpfToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle)
         if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_code,'translation') if v1.code == '18748-4']):
             CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle)
+        if [v1 for v1 in fhirpath_utils.get(cda,'templateId') if v1.root == '1.2.40.0.34.11.5'] and not [v3 for v3 in fhirpath_utils.get(cda,'code','translation') if v3.code == '18748-4']:
+            CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle)
 
 def CdaHeaderToFhirComposition(cda, fhir_composition, fhir_patient, fhir_bundle):
     cda_title = cda.title

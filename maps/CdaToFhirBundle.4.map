@@ -114,6 +114,10 @@ group CdaToFhirBundle(source cda: ClinicalDocument, target fhir_bundle: Bundle) 
       // while ClinicalDocument/code itself carries the specific study code (e.g. 25045-6 CT) which must be a child concept from 18748-4.
       //Therefore checking for cda_code.translation is enough to trigger the CdaImagingToFhirBundle.4.map 
       cda_code where (translation.where(code = '18748-4')) then CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle);
+      // Version 2 (Leitfaden 2.06.x, document template 1.2.40.0.34.11.5): ClinicalDocument/code carries the study code
+      // or 18748-4 itself, without translation 18748-4 (see the v2 example documents in input/imaging). The v2 document
+      // is recognised by its templateId; the translation check prevents a second call for a document that also has it.
+      cda where (templateId.where(root = '1.2.40.0.34.11.5').exists() and code.translation.where(code = '18748-4').exists().not()) then CdaImagingToFhirBundle(cda, fhir_patient, fhir_composition, fhir_bundle) "CdaImagingV2ToFhirBundle";
       // CDA e-Medikation -> FHIR
       // TODO
     } "CdaToFhirBundle";  
