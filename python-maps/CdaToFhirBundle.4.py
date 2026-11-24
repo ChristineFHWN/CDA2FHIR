@@ -87412,6 +87412,33 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
             if cda_section is not None:
                 if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '67781-5' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
                     CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
+                    for cda_entry in cda_section.entry or []:
+                        cda_concern = cda_entry.act
+                        if cda_concern is not None:
+                            if [v1 for v1 in fhirpath_utils.get(cda_concern,'templateId') if v1.root == '1.2.40.0.34.11.13.3.6']:
+                                for cda_concern_relationship in cda_concern.entryRelationship or []:
+                                    if cda_concern_relationship.typeCode == 'SUBJ':
+                                        cda_problem = cda_concern_relationship.observation
+                                        if cda_problem is not None:
+                                            if [v1 for v1 in fhirpath_utils.get(cda_problem,'templateId') if v1.root == '1.2.40.0.34.11.13.3.7']:
+                                                fhir_bundle_entry_condition = malac.models.fhir.r4.Bundle_Entry()
+                                                fhir_bundle.entry.append(fhir_bundle_entry_condition)
+                                                fhir_condition = malac.models.fhir.r4.Condition()
+                                                fhir_bundle_entry_condition.resource = malac.models.fhir.r4.ResourceContainer(Condition=fhir_condition)
+                                                fhir_condition_id = string(value=str(uuid.uuid4()))
+                                                fhir_condition.id = fhir_condition_id
+                                                fhir_bundle_entry_condition.fullUrl = uri(value=('urn:uuid:' + fhir_condition_id.value))
+                                                fhir_section_condition_entry = malac.models.fhir.r4.Reference()
+                                                fhir_section_impression.entry.append(fhir_section_condition_entry)
+                                                fhir_section_condition_entry.reference = string(value=('urn:uuid:' + fhir_condition_id.value))
+                                                fhir_section_condition_entry.type_ = uri(value='Condition')
+                                                fhir_condition_category = malac.models.fhir.r4.CodeableConcept()
+                                                fhir_condition.category.append(fhir_condition_category)
+                                                fhir_condition_category_coding = malac.models.fhir.r4.Coding()
+                                                fhir_condition_category.coding.append(fhir_condition_category_coding)
+                                                fhir_condition_category_coding.system = uri(value='http://terminology.hl7.org/CodeSystem/condition-category')
+                                                fhir_condition_category_coding.code = string(value='encounter-diagnosis')
+                                                CdaImagingProblemToFhirCondition(cda_concern, cda_problem, fhir_condition, fhir_patient)
             cda_section = cda_impression_component.section
             if cda_section is not None:
                 if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_section,'code') if (v1.code == '19005-8' and v1.codeSystem == '2.16.840.1.113883.6.1')]):
