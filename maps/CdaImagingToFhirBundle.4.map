@@ -602,8 +602,30 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_code.coding as fhir_section_coding,
             fhir_section_coding.system = 'http://loinc.org',
             fhir_section_coding.code = '59776-5'
-            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
-            "ImagingSectionFindings";
+            then {
+                cda_section then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle) "ImagingSectionFindingsContent";
+
+                // v2 Mammography: BI-RADS classification (Mammography Observation 1.2.40.0.34.11.5.3.1, LOINC 36625-2,
+                // Leitfaden 2.06.2 S. 53-56) -> Observation (ObservationFindingEuImaging), entry of the findings section
+                // (slice entry:finding) and DiagnosticReport.result.
+                // Not mapped: the Text Observation 1.2.40.0.34.11.5.3.2 (DCM 121071 Finding). Its value is only a reference
+                // into the section text (S. 55), which is already carried over as Composition.section.text.
+                cda_section.entry as cda_entry then {
+                    cda_entry.observation as cda_birads where (templateId.where(root = '1.2.40.0.34.11.5.3.1').exists()) ->
+                        fhir_bundle.entry as fhir_bundle_entry_birads,
+                        fhir_bundle_entry_birads.resource = create('Observation') as fhir_birads,
+                        fhir_birads.id = uuid() as fhir_birads_id,
+                        fhir_bundle_entry_birads.fullUrl = append('urn:uuid:', fhir_birads_id),
+                        fhir_section.entry = create('Reference') as fhir_section_birads_entry,
+                        fhir_section_birads_entry.reference = append('urn:uuid:', fhir_birads_id),
+                        fhir_section_birads_entry.type = 'Observation',
+                        fhir_diagnosticReport.result = create('Reference') as fhir_diagnosticReport_result,
+                        fhir_diagnosticReport_result.reference = append('urn:uuid:', fhir_birads_id),
+                        fhir_diagnosticReport_result.type = 'Observation'
+                        then CdaImagingMammographyToFhirObservation(cda_birads, fhir_birads, fhir_patient)
+                        "ImagingFindingsBirads";
+                } "ImagingFindingsEntry";
+            } "ImagingSectionFindings";
 
         // Anamnese / history (LOINC 10164-2) -> Composition.section:history (LOINC 11329-0)
         cda_component.section as cda_section where (code.where(code = '10164-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
@@ -935,7 +957,8 @@ group CdaImagingCatalogSeriesToFhirSeries(source cda_series: Act, target fhir_se
 
 // _________________________ Entry Level Templates: Radiation Dose _________________________
 
-// Radiation dose (templateId 1.2.40.0.34.6.0.11.3.183, e.g. DCM 113813 CT Dose Length Product Total)
+// Radiation dose (templateId 1.2.40.0.34.6.0.11.3.183, v2: 1.2.40.0.34.11.5.3.3 Strahlenexposition-Entry, Leitfaden 2.06.2 S. 43-44;
+// e.g. DCM 113813 CT Dose Length Product Total)
 // in the section "Durchgefuehrte Untersuchung" (55111-9) -> Observation.
 // Not mapped to ObservationRadiationDoseEuImaging: that profile requires partOf:study (ImagingStudy, 1..1),
 // which cannot be created from a v3 report (no Study Instance UID), and allows the value only as a
@@ -951,7 +974,7 @@ group CdaImagingDoseToFhirObservationLinked(source cda: ClinicalDocument, target
             cda_structuredBody.component as cda_body_component then {
                 cda_body_component.section as cda_section where (code.where(code = '55111-9' and codeSystem = '2.16.840.1.113883.6.1')) then {
                     cda_section.entry as cda_entry then {
-                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183').exists()) ->
+                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183' or root = '1.2.40.0.34.11.5.3.3').exists()) ->   
                             fhir_bundle.entry as fhir_bundle_entry_dose,
                             fhir_bundle_entry_dose.resource = create('Observation') as fhir_observation,
                             fhir_observation.id = uuid() as fhir_observation_id,
@@ -978,7 +1001,7 @@ group CdaImagingDoseToFhirObservationUnlinked(source cda: ClinicalDocument, targ
             cda_structuredBody.component as cda_body_component then {
                 cda_body_component.section as cda_section where (code.where(code = '55111-9' and codeSystem = '2.16.840.1.113883.6.1')) then {
                     cda_section.entry as cda_entry then {
-                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183').exists()) ->
+                        cda_entry.observation as cda_observation where (templateId.where(root = '1.2.40.0.34.6.0.11.3.183' or root = '1.2.40.0.34.11.5.3.3').exists()) ->
                             fhir_bundle.entry as fhir_bundle_entry_dose,
                             fhir_bundle_entry_dose.resource = create('Observation') as fhir_observation,
                             fhir_observation.id = uuid() as fhir_observation_id,
@@ -1034,6 +1057,46 @@ group CdaImagingDoseObservationToFhirObservation(source cda_observation: CDAObse
         "ImagingDoseValue";
 }
 
+
+// _________________________ Entry Level Templates: Mammography (v2) _________________________
+
+// Mammography Observation (1.2.40.0.34.11.5.3.1, Leitfaden 2.06.2 S. 55-56): BI-RADS classification,
+// value CD from ELGA_MammogramAssessment (1.2.40.0.34.5.49) -> Observation (ObservationFindingEuImaging)
+group CdaImagingMammographyToFhirObservation(source cda_observation: CDAObservation, target fhir_observation: Observation, target fhir_patient: Patient) {
+    cda_observation ->
+        fhir_observation.meta as fhir_birads_meta,
+        fhir_birads_meta.profile = 'http://hl7.eu/fhir/imaging/StructureDefinition/ObservationFindingEuImaging'
+        "ImagingBiradsProfile";
+
+    // statusCode (fixed value completed) -> status final
+    cda_observation.statusCode as cda_status where (code = 'completed') ->
+        fhir_observation.status = 'final'
+        "ImagingBiradsStatus";
+
+    // code (LOINC 36625-2 Breast Mammogram) -> Observation.code
+    cda_observation.code as cda_code ->
+        fhir_observation.code = create('CodeableConcept') as fhir_birads_code
+        then CDCodeableConcept(cda_code, fhir_birads_code)
+        "ImagingBiradsCode";
+
+    cda_observation ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_observation.subject = create('Reference') as fhir_birads_subject,
+        fhir_birads_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_birads_subject.type = 'Patient'
+        "ImagingBiradsSubject";
+
+    cda_observation.effectiveTime as cda_effectiveTime ->
+        fhir_observation.effective = create('dateTime') as fhir_birads_effective
+        then TSDateTime(cda_effectiveTime, fhir_birads_effective)
+        "ImagingBiradsEffective";
+
+    // value (CD, ELGA_MammogramAssessment) -> Observation.valueCodeableConcept
+    cda_observation.value : CD as cda_value ->
+        fhir_observation.value = create('CodeableConcept') as fhir_birads_value
+        then CDCodeableConcept(cda_value, fhir_birads_value)
+        "ImagingBiradsValue";
+}
 
 // _________________________ Entry Level Templates: Diagnosis _________________________
 
