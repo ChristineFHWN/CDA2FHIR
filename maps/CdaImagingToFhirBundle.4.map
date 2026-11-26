@@ -347,7 +347,8 @@ group CdaImagingRequestToFhirServiceRequest(source cda: ClinicalDocument, target
 
     // Zuweiser (participant REF, 1.2.40.0.34.6.0.11.1.21, Leitfaden 3.0.3 S. 107-110) -> ServiceRequest.requester
     // (PractitionerRole with Practitioner and Organization, ELGA group CdaAssociatedEntityToFhirPractitionerRole)
-    cda.participant as cda_referrer where (templateId.where(root = '1.2.40.0.34.6.0.11.1.21').exists()) then {
+    // v2: participant REF with templateId 1.2.40.0.34.11.1.1.2 (v2 example documents)
+    cda.participant as cda_referrer where (templateId.where(root = '1.2.40.0.34.6.0.11.1.21' or root = '1.2.40.0.34.11.1.1.2').exists()) then {
         cda_referrer.associatedEntity as cda_referrer_entity ->
             fhir_bundle.entry as fhir_bundle_entry_referrer,
             fhir_bundle_entry_referrer.resource = create('PractitionerRole') as fhir_practitionerRole,
@@ -370,9 +371,9 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
 
     // Anforderung / order (LOINC 55115-0) -> Composition.section:order (LOINC 55115-0)
     // The EU profile requires the order section (1..1). It is created if the CDA contains the section
-    // Anforderung and/or the section Konsultations- oder Ueberweisungsgrund (LOINC 46239-0).
-    // The reason for referral becomes a subsection of the order section.
-    cda_structuredBody where (component.section.code.where((code = '55115-0' or code = '46239-0') and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
+    // Anforderung and/or the section Konsultations- oder Ueberweisungsgrund (LOINC 46239-0), in v2 also
+    // the section Indikation (LOINC 18785-6). Reason for referral and Indikation become subsections of the order section.
+    cda_structuredBody where (component.section.code.where((code = '55115-0' or code = '46239-0' or code = '18785-6') and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
         fhir_composition.section as fhir_section_order
         then {
             cda_structuredBody.component as cda_order_component then {
@@ -386,6 +387,12 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                     fhir_section_order.section as fhir_section_reason
                     then CdaImagingSectionToFhirSection(cda_section, fhir_section_reason, fhir_bundle)
                     "ImagingSectionReason";
+
+                // v2: Indikation (LOINC 18785-6 Reason for study, Leitfaden 2.06.2 S. 35) -> subsection of the order section
+                cda_order_component.section as cda_section where (code.where(code = '18785-6' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                    fhir_section_order.section as fhir_section_indication
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_indication, fhir_bundle)
+                    "ImagingSectionIndication";
             } "ImagingSectionOrderComponents";
 
             // Without the section Anforderung the order section only gets the EU code (no title or text is invented)
@@ -419,7 +426,7 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             // No inFulfillmentOf, but a referring physician (Zuweiser, participant REF, 1.2.40.0.34.6.0.11.1.21,
             // Leitfaden 3.0.3 S. 107-110): a ServiceRequest without identifier is created so that the referrer
             // is kept as ServiceRequest.requester (decision 24.11.2026).
-            cda where (inFulfillmentOf.order.exists().not() and participant.where(templateId.where(root = '1.2.40.0.34.6.0.11.1.21').exists()).exists()) ->
+            cda where (inFulfillmentOf.order.exists().not() and participant.where(templateId.where(root = '1.2.40.0.34.6.0.11.1.21' or root = '1.2.40.0.34.11.1.1.2').exists()).exists()) ->
                 fhir_bundle.entry as fhir_bundle_entry_request,
                 fhir_bundle_entry_request.resource = create('ServiceRequest') as fhir_serviceRequest_ref,
                 fhir_serviceRequest_ref.id = uuid() as fhir_serviceRequest_ref_id,
@@ -455,8 +462,10 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
     // Impression (EU section:impression, LOINC 19005-8, max. 1)
     // Case 1: the CDA contains the section Zusammenfassende Beurteilung (LOINC 67781-5). It is the overall
     // assessment of the findings and becomes the impression section (EU code 19005-8 plus the original code).
-    // The section Verdachtsdiagnose (LOINC 19005-8) becomes a subsection of it.
-    cda_structuredBody where (component.section.code.where(code = '67781-5' and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
+       // The section Verdachtsdiagnose (LOINC 19005-8) becomes a subsection of it.
+    // v2 (Leitfaden 2.06.2 S. 57 and 61): Zusammenfassung/Ergebnis (LOINC 55112-7) takes the place of the Zusammenfassende
+    // Beurteilung, Schlussfolgerung (LOINC 55110-1) becomes a further subsection.
+    cda_structuredBody where (component.section.code.where((code = '67781-5' or code = '55112-7' or code = '55110-1') and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
         fhir_composition.section as fhir_section_impression,
         fhir_section_impression.code as fhir_impression_code,
         fhir_impression_code.coding as fhir_impression_coding,
@@ -500,11 +509,23 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                     fhir_section_impression.section as fhir_section_suspected
                     then CdaImagingSectionToFhirSection(cda_section, fhir_section_suspected, fhir_bundle)
                     "ImagingSectionImpressionSuspected";
+
+                // v2: Zusammenfassung/Ergebnis (LOINC 55112-7): title, text and original code of the impression section
+                cda_impression_component.section as cda_section where (code.where(code = '55112-7' and codeSystem = '2.16.840.1.113883.6.1'))
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_impression, fhir_bundle)
+                    "ImagingSectionImpressionSummaryV2";
+
+                // v2: Schlussfolgerung (LOINC 55110-1 Conclusions) -> subsection of the impression section
+                cda_impression_component.section as cda_section where (code.where(code = '55110-1' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                    fhir_section_impression.section as fhir_section_conclusions
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_conclusions, fhir_bundle)
+                    "ImagingSectionImpressionConclusions";
             } "ImagingSectionImpressionComponents";
         } "ImagingSectionImpressionWithSummary";
 
-    // Case 2: no Zusammenfassende Beurteilung -> Verdachtsdiagnose is the impression section (LOINC 19005-8)
-    cda_structuredBody where (component.section.code.where(code = '67781-5' and codeSystem = '2.16.840.1.113883.6.1').exists().not()) then {
+    // Case 2: no Zusammenfassende Beurteilung (v2: no Zusammenfassung/Ergebnis and no Schlussfolgerung)
+    // -> Verdachtsdiagnose is the impression section (LOINC 19005-8)
+    cda_structuredBody where (component.section.code.where((code = '67781-5' or code = '55112-7' or code = '55110-1') and codeSystem = '2.16.840.1.113883.6.1').exists().not()) then {
         cda_structuredBody.component as cda_impression_component then {
             cda_impression_component.section as cda_section where (code.where(code = '19005-8' and codeSystem = '2.16.840.1.113883.6.1')) ->
                 fhir_composition.section as fhir_section_impression
@@ -512,6 +533,38 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
                 "ImagingSectionImpressionSuspectedOnly";
         } "ImagingSectionImpressionSuspectedComponents";
     } "ImagingSectionImpressionWithoutSummary";
+
+    // Comparison (EU section:comparison, LOINC 18834-2, max. 1)
+    // Fruehere Untersuchungen und Befunde / prior examinations (LOINC 55114-3, v2 and v3) becomes the comparison section.
+    // v2 (Leitfaden 2.06.2 S. 47): Fruehere Befunde (LOINC 18834-2, prior reports without images) becomes a subsection of it;
+    // without Fruehere Untersuchungen, Fruehere Befunde is the comparison section itself.
+    cda_structuredBody where (component.section.code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1').exists()) ->
+        fhir_composition.section as fhir_section_comparison,
+        fhir_section_comparison.code as fhir_comparison_code,
+        fhir_comparison_code.coding as fhir_comparison_coding,
+        fhir_comparison_coding.system = 'http://loinc.org',
+        fhir_comparison_coding.code = '18834-2'
+        then {
+            cda_structuredBody.component as cda_comparison_component then {
+                cda_comparison_component.section as cda_section where (code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1'))
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_comparison, fhir_bundle)
+                    "ImagingSectionComparisonContent";
+
+                cda_comparison_component.section as cda_section where (code.where(code = '18834-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                    fhir_section_comparison.section as fhir_section_prior_reports
+                    then CdaImagingSectionToFhirSection(cda_section, fhir_section_prior_reports, fhir_bundle)
+                    "ImagingSectionComparisonPriorReports";
+            } "ImagingSectionComparisonComponents";
+        } "ImagingSectionComparison";
+
+    cda_structuredBody where (component.section.code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1').exists().not()) then {
+        cda_structuredBody.component as cda_comparison_component then {
+            cda_comparison_component.section as cda_section where (code.where(code = '18834-2' and codeSystem = '2.16.840.1.113883.6.1')) ->
+                fhir_composition.section as fhir_section_comparison
+                then CdaImagingSectionToFhirSection(cda_section, fhir_section_comparison, fhir_bundle)
+                "ImagingSectionComparisonPriorReportsOnly";
+        } "ImagingSectionComparisonPriorReportsComponents";
+    } "ImagingSectionComparisonWithoutExaminations";
 
     cda_structuredBody.component as cda_component then {
 
@@ -593,16 +646,6 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
         } "ImagingHistoryProblemComponent";
         } "ImagingSectionHistory";
 
-        // Fruehere Untersuchungen und Befunde / prior examinations (LOINC 55114-3) -> Composition.section:comparison (LOINC 18834-2)
-        cda_component.section as cda_section where (code.where(code = '55114-3' and codeSystem = '2.16.840.1.113883.6.1')) ->
-            fhir_composition.section as fhir_section,
-            fhir_section.code as fhir_section_code,
-            fhir_section_code.coding as fhir_section_coding,
-            fhir_section_coding.system = 'http://loinc.org',
-            fhir_section_coding.code = '18834-2'
-            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
-            "ImagingSectionComparison";
-
         // Weitere empfohlene Massnahmen / recommended actions (LOINC 59772-4) -> Composition.section:recommendation (LOINC 18783-1)
         cda_component.section as cda_section where (code.where(code = '59772-4' and codeSystem = '2.16.840.1.113883.6.1')) ->
             fhir_composition.section as fhir_section,
@@ -612,6 +655,26 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
             fhir_section_coding.code = '18783-1'
             then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
             "ImagingSectionRecommendation";
+
+        // v2: Anamnese (LOINC 11329-0, Leitfaden 2.06.2 S. 33) -> Composition.section:history. The v2 code is already
+        // the EU code; Level 3 entries are not foreseen in v2.
+        cda_component.section as cda_section where (code.where(code = '11329-0' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionHistoryV2";
+
+        // v2: Empfehlung (LOINC 18783-1, Leitfaden 2.06.2 S. 63) -> Composition.section:recommendation (same code)
+        cda_component.section as cda_section where (code.where(code = '18783-1' and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionRecommendationV2";
+
+        // v2: Patientenstatus/Patientenangaben (LOINC 55108-5, S. 37) and Addendum (LOINC 55107-7, S. 65):
+        // no EU slice, added as own sections with their original code, title and text
+        cda_component.section as cda_section where (code.where((code = '55108-5' or code = '55107-7') and codeSystem = '2.16.840.1.113883.6.1')) ->
+            fhir_composition.section as fhir_section
+            then CdaImagingSectionToFhirSection(cda_section, fhir_section, fhir_bundle)
+            "ImagingSectionOtherV2";
 
         // Sections without an EU slice: added as own sections with their original code, title and text
         // (the section slicing of CompositionEuImaging is open). Subsections are kept via the recursion
