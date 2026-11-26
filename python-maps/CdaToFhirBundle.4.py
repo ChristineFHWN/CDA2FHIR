@@ -87405,26 +87405,56 @@ def CdaImagingBodyToFhirComposition(cda, cda_structuredBody, fhir_composition, f
             fhir_section_order_entry_ref.reference = string(value=('urn:uuid:' + fhir_serviceRequest_ref_id.value))
             fhir_section_order_entry_ref.type_ = uri(value='ServiceRequest')
             CdaImagingRequestToFhirServiceRequest(cda, fhir_serviceRequest_ref, fhir_patient, fhir_bundle)
-    fhir_section_imagingstudy = malac.models.fhir.r4.Composition_Section()
-    fhir_composition.section.append(fhir_section_imagingstudy)
-    fhir_imagingstudy_code = malac.models.fhir.r4.CodeableConcept()
-    fhir_section_imagingstudy.code = fhir_imagingstudy_code
-    fhir_imagingstudy_coding = malac.models.fhir.r4.Coding()
-    fhir_imagingstudy_code.coding.append(fhir_imagingstudy_coding)
-    fhir_imagingstudy_coding.system = uri(value='http://loinc.org')
-    fhir_imagingstudy_coding.code = string(value='18726-0')
-    fhir_bundle_entry_study = malac.models.fhir.r4.Bundle_Entry()
-    fhir_bundle.entry.append(fhir_bundle_entry_study)
-    fhir_imagingStudy = malac.models.fhir.r4.ImagingStudy()
-    fhir_bundle_entry_study.resource = malac.models.fhir.r4.ResourceContainer(ImagingStudy=fhir_imagingStudy)
-    fhir_imagingStudy_id = string(value=str(uuid.uuid4()))
-    fhir_imagingStudy.id = fhir_imagingStudy_id
-    fhir_bundle_entry_study.fullUrl = uri(value=('urn:uuid:' + fhir_imagingStudy_id.value))
-    fhir_section_imagingstudy_entry = malac.models.fhir.r4.Reference()
-    fhir_section_imagingstudy.entry.append(fhir_section_imagingstudy_entry)
-    fhir_section_imagingstudy_entry.reference = string(value=('urn:uuid:' + fhir_imagingStudy_id.value))
-    fhir_section_imagingstudy_entry.type_ = uri(value='ImagingStudy')
-    CdaImagingToFhirImagingStudyPlaceholder(cda, fhir_imagingStudy, fhir_patient)
+    if [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if (v1.code == '121181' and v1.codeSystem == '1.2.840.10008.2.16.4')]:
+        fhir_section_imagingstudy = malac.models.fhir.r4.Composition_Section()
+        fhir_composition.section.append(fhir_section_imagingstudy)
+        fhir_imagingstudy_code = malac.models.fhir.r4.CodeableConcept()
+        fhir_section_imagingstudy.code = fhir_imagingstudy_code
+        fhir_imagingstudy_coding = malac.models.fhir.r4.Coding()
+        fhir_imagingstudy_code.coding.append(fhir_imagingstudy_coding)
+        fhir_imagingstudy_coding.system = uri(value='http://loinc.org')
+        fhir_imagingstudy_coding.code = string(value='18726-0')
+        for cda_catalog_component in cda_structuredBody.component or []:
+            cda_catalog = cda_catalog_component.section
+            if cda_catalog is not None:
+                if fhirpath.single([v1 for v1 in fhirpath_utils.get(cda_catalog,'code') if (v1.code == '121181' and v1.codeSystem == '1.2.840.10008.2.16.4')]):
+                    for cda_catalog_entry in cda_catalog.entry or []:
+                        cda_study = cda_catalog_entry.act
+                        if cda_study is not None:
+                            if [v1 for v1 in fhirpath_utils.get(cda_study,'templateId') if v1.root == '2.16.840.1.113883.10.20.6.2.6']:
+                                fhir_bundle_entry_study = malac.models.fhir.r4.Bundle_Entry()
+                                fhir_bundle.entry.append(fhir_bundle_entry_study)
+                                fhir_imagingStudy = malac.models.fhir.r4.ImagingStudy()
+                                fhir_bundle_entry_study.resource = malac.models.fhir.r4.ResourceContainer(ImagingStudy=fhir_imagingStudy)
+                                fhir_imagingStudy_id = string(value=str(uuid.uuid4()))
+                                fhir_imagingStudy.id = fhir_imagingStudy_id
+                                fhir_bundle_entry_study.fullUrl = uri(value=('urn:uuid:' + fhir_imagingStudy_id.value))
+                                fhir_section_imagingstudy_entry = malac.models.fhir.r4.Reference()
+                                fhir_section_imagingstudy.entry.append(fhir_section_imagingstudy_entry)
+                                fhir_section_imagingstudy_entry.reference = string(value=('urn:uuid:' + fhir_imagingStudy_id.value))
+                                fhir_section_imagingstudy_entry.type_ = uri(value='ImagingStudy')
+                                CdaImagingCatalogStudyToFhirImagingStudy(cda_study, fhir_imagingStudy, fhir_patient)
+    if not [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if (v1.code == '121181' and v1.codeSystem == '1.2.840.10008.2.16.4')]:
+        fhir_section_imagingstudy = malac.models.fhir.r4.Composition_Section()
+        fhir_composition.section.append(fhir_section_imagingstudy)
+        fhir_imagingstudy_code = malac.models.fhir.r4.CodeableConcept()
+        fhir_section_imagingstudy.code = fhir_imagingstudy_code
+        fhir_imagingstudy_coding = malac.models.fhir.r4.Coding()
+        fhir_imagingstudy_code.coding.append(fhir_imagingstudy_coding)
+        fhir_imagingstudy_coding.system = uri(value='http://loinc.org')
+        fhir_imagingstudy_coding.code = string(value='18726-0')
+        fhir_bundle_entry_study = malac.models.fhir.r4.Bundle_Entry()
+        fhir_bundle.entry.append(fhir_bundle_entry_study)
+        fhir_imagingStudy = malac.models.fhir.r4.ImagingStudy()
+        fhir_bundle_entry_study.resource = malac.models.fhir.r4.ResourceContainer(ImagingStudy=fhir_imagingStudy)
+        fhir_imagingStudy_id = string(value=str(uuid.uuid4()))
+        fhir_imagingStudy.id = fhir_imagingStudy_id
+        fhir_bundle_entry_study.fullUrl = uri(value=('urn:uuid:' + fhir_imagingStudy_id.value))
+        fhir_section_imagingstudy_entry = malac.models.fhir.r4.Reference()
+        fhir_section_imagingstudy.entry.append(fhir_section_imagingstudy_entry)
+        fhir_section_imagingstudy_entry.reference = string(value=('urn:uuid:' + fhir_imagingStudy_id.value))
+        fhir_section_imagingstudy_entry.type_ = uri(value='ImagingStudy')
+        CdaImagingToFhirImagingStudyPlaceholder(cda, fhir_imagingStudy, fhir_patient)
     if [v1 for v1 in fhirpath_utils.get(cda_structuredBody,'component','section','code') if ((v1.code == '67781-5' or v1.code == '55112-7' or v1.code == '55110-1') and v1.codeSystem == '2.16.840.1.113883.6.1')]:
         fhir_section_impression = malac.models.fhir.r4.Composition_Section()
         fhir_composition.section.append(fhir_section_impression)
@@ -87765,6 +87795,82 @@ def CdaImagingToFhirImagingStudyPlaceholder(cda, fhir_imagingStudy, fhir_patient
     fhir_study_identifier_value_code = malac.models.fhir.r4.code()
     fhir_study_identifier_value_extension.valueCode = fhir_study_identifier_value_code
     fhir_study_identifier_value_code.value = 'unsupported'
+
+def CdaImagingCatalogStudyToFhirImagingStudy(cda_study, fhir_imagingStudy, fhir_patient):
+    fhir_imagingStudy.status = string(value='available')
+    if fhir_patient.id is None:
+        fhir_patient.id = malac.models.fhir.r4.string()
+    fhir_patient_id = fhir_patient.id
+    fhir_imagingStudy_subject = malac.models.fhir.r4.Reference()
+    fhir_imagingStudy.subject = fhir_imagingStudy_subject
+    fhir_imagingStudy_subject.reference = string(value=('urn:uuid:' + fhir_patient_id.value))
+    fhir_imagingStudy_subject.type_ = uri(value='Patient')
+    for cda_study_id in cda_study.id or []:
+        if cda_study_id.root is not None:
+            fhir_study_identifier = malac.models.fhir.r4.Identifier()
+            fhir_imagingStudy.identifier.append(fhir_study_identifier)
+            fhir_study_identifier_type = malac.models.fhir.r4.CodeableConcept()
+            fhir_study_identifier.type_ = fhir_study_identifier_type
+            fhir_study_identifier_type_coding = malac.models.fhir.r4.Coding()
+            fhir_study_identifier_type.coding.append(fhir_study_identifier_type_coding)
+            fhir_study_identifier_type_coding.system = uri(value='http://dicom.nema.org/resources/ontology/DCM')
+            fhir_study_identifier_type_coding.code = string(value='110180')
+            fhir_study_identifier_type_coding.display = string(value='Study Instance UID')
+            fhir_study_identifier.system = uri(value='urn:dicom:uid')
+            fhir_study_identifier.value = string(value=fhirpath.single(fhirpath_utils.add(['urn:oid:'], fhirpath_utils.get(cda_study_id,'root'))))
+    cda_study_time = cda_study.effectiveTime
+    if cda_study_time is not None:
+        if cda_study_time.nullFlavor is None:
+            fhir_imagingStudy_started = malac.models.fhir.r4.dateTime()
+            fhir_imagingStudy.started = fhir_imagingStudy_started
+            TSDateTime(cda_study_time, fhir_imagingStudy_started)
+    cda_study_text = cda_study.text
+    if cda_study_text is not None:
+        fhir_imagingStudy.description = string(value=fhirpath.single(fhirpath_utils.get(cda_study_text,'valueOf_',strip=True)))
+    for cda_study_relationship in cda_study.entryRelationship or []:
+        if cda_study_relationship.typeCode == 'COMP':
+            cda_series = cda_study_relationship.act
+            if cda_series is not None:
+                if [v1 for v1 in fhirpath_utils.get(cda_series,'code') if v1.code == '113015']:
+                    fhir_series = malac.models.fhir.r4.ImagingStudy_Series()
+                    fhir_imagingStudy.series.append(fhir_series)
+                    CdaImagingCatalogSeriesToFhirSeries(cda_series, fhir_series)
+
+def CdaImagingCatalogSeriesToFhirSeries(cda_series, fhir_series):
+    for cda_series_id in cda_series.id or []:
+        fhir_series.uid = malac.models.fhir.r4.id(value=fhirpath.single(fhirpath_utils.get(cda_series_id,'root')))
+    cda_series_code = cda_series.code
+    if cda_series_code is not None:
+        for cda_series_qualifier in cda_series_code.qualifier or []:
+            if fhirpath.single(fhirpath_utils.equals(fhirpath_utils.get(cda_series_qualifier,'name','code'), '==', ['121139'])):
+                cda_modality = cda_series_qualifier.value
+                if cda_modality is not None:
+                    fhir_series_modality = malac.models.fhir.r4.Coding()
+                    fhir_series.modality = fhir_series_modality
+                    fhir_series_modality.system = uri(value='http://dicom.nema.org/resources/ontology/DCM')
+                    if cda_modality.code is not None:
+                        fhir_series_modality.code = malac.models.fhir.r4.code(value=fhirpath.single(fhirpath_utils.get(cda_modality,'code')))
+                    if cda_modality.displayName is not None:
+                        fhir_series_modality.display = string(value=str(fhirpath.single([v2 for v1 in fhirpath_utils.get(cda_modality,'displayName') for v2 in fhirpath_utils.replaceMatches(v1, ['^\\s+|\\s+$'], [''])])))
+    cda_series_text = cda_series.text
+    if cda_series_text is not None:
+        fhir_series.description = string(value=fhirpath.single(fhirpath_utils.get(cda_series_text,'valueOf_',strip=True)))
+    for cda_series_relationship in cda_series.entryRelationship or []:
+        if cda_series_relationship.typeCode == 'COMP':
+            cda_instance = cda_series_relationship.observation
+            if cda_instance is not None:
+                if [v1 for v1 in fhirpath_utils.get(cda_instance,'templateId') if v1.root == '2.16.840.1.113883.10.20.6.2.8']:
+                    fhir_instance = malac.models.fhir.r4.ImagingStudy_Instance()
+                    fhir_series.instance.append(fhir_instance)
+                    for cda_instance_id in cda_instance.id or []:
+                        fhir_instance.uid = malac.models.fhir.r4.id(value=fhirpath.single(fhirpath_utils.get(cda_instance_id,'root')))
+                    cda_instance_code = cda_instance.code
+                    if cda_instance_code is not None:
+                        if cda_instance_code.code is not None:
+                            fhir_instance_sopClass = malac.models.fhir.r4.Coding()
+                            fhir_instance.sopClass = fhir_instance_sopClass
+                            fhir_instance_sopClass.system = uri(value='urn:ietf:rfc:3986')
+                            fhir_instance_sopClass.code = malac.models.fhir.r4.code(value=fhirpath.single(fhirpath_utils.add(['urn:oid:'], fhirpath_utils.get(cda_instance_code,'code'))))
 
 def CdaImagingDoseToFhirObservationLinked(cda, fhir_bundle, fhir_patient, fhir_procedure):
     cda_component = cda.component

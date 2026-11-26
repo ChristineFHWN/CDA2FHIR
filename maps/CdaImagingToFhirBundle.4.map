@@ -439,11 +439,38 @@ group CdaImagingBodyToFhirComposition(source cda: ClinicalDocument, source cda_s
         } "ImagingSectionOrder";
 
     // Imaging study (EU section:imagingstudy, LOINC 18726-0, 1..1, entry:imagingstudy 1..*; BundleReportEuImaging requires an ImagingStudy).
-    // An ELGA CDA has no Study Instance UID: the report is linked to the images through the Accession Number in the
-    // XDS-I metadata (Leitfaden 3.0.3 S. 19). Following HL7 Europe "Missing Data" (required element without value ->
-    // Data Absent Reason) and the recommendation of ELGA GmbH (24.11.2026), an ImagingStudy is created whose
-    // Study Instance UID carries the data-absent-reason 'unsupported' (the CDA document cannot carry this value).
-    cda_structuredBody ->
+    // Case 1 (v2): the CDA has a DICOM Object Catalog (DCM 121181, Leitfaden 2.06.2 S. 67-73). Every Study Act
+    // (2.16.840.1.113883.10.20.6.2.6) becomes an ImagingStudy with the real Study Instance UID, its series and instances.
+    cda_structuredBody where (component.section.code.where(code = '121181' and codeSystem = '1.2.840.10008.2.16.4').exists()) ->
+        fhir_composition.section as fhir_section_imagingstudy,
+        fhir_section_imagingstudy.code = create('CodeableConcept') as fhir_imagingstudy_code,
+        fhir_imagingstudy_code.coding = create('Coding') as fhir_imagingstudy_coding,
+        fhir_imagingstudy_coding.system = 'http://loinc.org',
+        fhir_imagingstudy_coding.code = '18726-0'
+        then {
+            cda_structuredBody.component as cda_catalog_component then {
+                cda_catalog_component.section as cda_catalog where (code.where(code = '121181' and codeSystem = '1.2.840.10008.2.16.4')) then {
+                    cda_catalog.entry as cda_catalog_entry then {
+                        cda_catalog_entry.act as cda_study where (templateId.where(root = '2.16.840.1.113883.10.20.6.2.6').exists()) ->
+                            fhir_bundle.entry as fhir_bundle_entry_study,
+                            fhir_bundle_entry_study.resource = create('ImagingStudy') as fhir_imagingStudy,
+                            fhir_imagingStudy.id = uuid() as fhir_imagingStudy_id,
+                            fhir_bundle_entry_study.fullUrl = append('urn:uuid:', fhir_imagingStudy_id),
+                            fhir_section_imagingstudy.entry = create('Reference') as fhir_section_imagingstudy_entry,
+                            fhir_section_imagingstudy_entry.reference = append('urn:uuid:', fhir_imagingStudy_id),
+                            fhir_section_imagingstudy_entry.type = 'ImagingStudy'
+                            then CdaImagingCatalogStudyToFhirImagingStudy(cda_study, fhir_imagingStudy, fhir_patient)
+                            "ImagingCatalogStudy";
+                    } "ImagingCatalogEntry";
+                } "ImagingCatalogSection";
+            } "ImagingCatalogComponent";
+        } "ImagingSectionImagingStudyCatalog";
+
+    // Case 2 (v3, or v2 without catalog): an ELGA CDA of version 3 has no Study Instance UID: the report is linked to
+    // the images through the Accession Number in the XDS-I metadata (Leitfaden 3.0.3 S. 19). Following HL7 Europe
+    // "Missing Data" (required element without value -> Data Absent Reason) and the recommendation of ELGA GmbH (24.11.2026),
+    // an ImagingStudy is created whose Study Instance UID carries the data-absent-reason 'unsupported'.
+    cda_structuredBody where (component.section.code.where(code = '121181' and codeSystem = '1.2.840.10008.2.16.4').exists().not()) ->
         fhir_composition.section as fhir_section_imagingstudy,
         fhir_section_imagingstudy.code = create('CodeableConcept') as fhir_imagingstudy_code,
         fhir_imagingstudy_code.coding = create('Coding') as fhir_imagingstudy_coding,
@@ -817,6 +844,93 @@ group CdaImagingToFhirImagingStudyPlaceholder(source cda: ClinicalDocument, targ
         fhir_study_identifier_value_extension.value = create('code') as fhir_study_identifier_value_code,
         fhir_study_identifier_value_code.value = 'unsupported'
         "ImagingStudyInstanceUidAbsent";
+}
+
+// _________________________ Imaging Study (DICOM Object Catalog, v2) _________________________
+
+// Study Act of the DICOM Object Catalog (2.16.840.1.113883.10.20.6.2.6, Leitfaden 2.06.2 S. 70-71) -> ImagingStudy.
+// id/@root is the Study Instance UID; FHIR writes DICOM UIDs in an identifier as urn:oid (constraint im-imagingstudy-01).
+// status 'available': the catalog lists instances that belong to the study.
+// Not mapped: the WADO link in SopInstance text/reference (Leitfaden 2.06.2 S. 67: the ELGA URL scheme is not defined).
+group CdaImagingCatalogStudyToFhirImagingStudy(source cda_study: Act, target fhir_imagingStudy: ImagingStudy, target fhir_patient: Patient) {
+    cda_study ->
+        fhir_imagingStudy.status = 'available'
+        "ImagingCatalogStudyStatus";
+
+    cda_study ->
+        fhir_patient.id as fhir_patient_id,
+        fhir_imagingStudy.subject = create('Reference') as fhir_imagingStudy_subject,
+        fhir_imagingStudy_subject.reference = append('urn:uuid:', fhir_patient_id),
+        fhir_imagingStudy_subject.type = 'Patient'
+        "ImagingCatalogStudySubject";
+
+    cda_study.id as cda_study_id then {
+        cda_study_id where (root.exists()) ->
+            fhir_imagingStudy.identifier as fhir_study_identifier,
+            fhir_study_identifier.type = create('CodeableConcept') as fhir_study_identifier_type,
+            fhir_study_identifier_type.coding = create('Coding') as fhir_study_identifier_type_coding,
+            fhir_study_identifier_type_coding.system = 'http://dicom.nema.org/resources/ontology/DCM',
+            fhir_study_identifier_type_coding.code = '110180',
+            fhir_study_identifier_type_coding.display = 'Study Instance UID',
+            fhir_study_identifier.system = 'urn:dicom:uid',
+            fhir_study_identifier.value = ('urn:oid:' + cda_study_id.root)
+            "ImagingCatalogStudyUid";
+    } "ImagingCatalogStudyId";
+
+    // effectiveTime = start of the study, text = optional description
+    cda_study.effectiveTime as cda_study_time where (nullFlavor.exists().not()) ->
+        fhir_imagingStudy.started = create('dateTime') as fhir_imagingStudy_started
+        then TSDateTime(cda_study_time, fhir_imagingStudy_started)
+        "ImagingCatalogStudyStarted";
+    cda_study.text as cda_study_text -> fhir_imagingStudy.description = (cda_study_text.xmlText) "ImagingCatalogStudyDescription";
+
+    // Series Act (code DCM 113015, S. 71-72) -> ImagingStudy.series
+    cda_study.entryRelationship as cda_study_relationship where (typeCode = 'COMP') then {
+        cda_study_relationship.act as cda_series where (code.where(code = '113015').exists()) ->
+            fhir_imagingStudy.series as fhir_series
+            then CdaImagingCatalogSeriesToFhirSeries(cda_series, fhir_series)
+            "ImagingCatalogSeries";
+    } "ImagingCatalogStudyRelationship";
+}
+
+// Series Act -> ImagingStudy.series: id/@root = Series Instance UID (type id, without urn:oid),
+// code/qualifier (name DCM 121139 Modality)/value -> modality, SopInstance observations -> instance
+group CdaImagingCatalogSeriesToFhirSeries(source cda_series: Act, target fhir_series) {
+    cda_series.id as cda_series_id then {
+        cda_series_id -> fhir_series.uid = (cda_series_id.root) "ImagingCatalogSeriesUid";
+    } "ImagingCatalogSeriesId";
+
+    cda_series.code as cda_series_code then {
+        cda_series_code.qualifier as cda_series_qualifier where (name.code = '121139') then {
+            cda_series_qualifier.value as cda_modality ->
+                fhir_series.modality = create('Coding') as fhir_series_modality,
+                fhir_series_modality.system = 'http://dicom.nema.org/resources/ontology/DCM'
+                then {
+                    cda_modality where (code.exists()) -> fhir_series_modality.code = (cda_modality.code) "ImagingCatalogModalityCode";
+                    cda_modality where (displayName.exists()) -> fhir_series_modality.display = (cda_modality.displayName.replaceMatches('^\\s+|\\s+$', '')) "ImagingCatalogModalityDisplay";
+                } "ImagingCatalogModality";
+        } "ImagingCatalogSeriesQualifier";
+    } "ImagingCatalogSeriesCode";
+
+    cda_series.text as cda_series_text -> fhir_series.description = (cda_series_text.xmlText) "ImagingCatalogSeriesDescription";
+
+    // SopInstance (2.16.840.1.113883.10.20.6.2.8, S. 73): id/@root = SOP Instance UID, code/@code = SOP Class UID
+    cda_series.entryRelationship as cda_series_relationship where (typeCode = 'COMP') then {
+        cda_series_relationship.observation as cda_instance where (templateId.where(root = '2.16.840.1.113883.10.20.6.2.8').exists()) ->
+            fhir_series.instance as fhir_instance
+            then {
+                cda_instance.id as cda_instance_id then {
+                    cda_instance_id -> fhir_instance.uid = (cda_instance_id.root) "ImagingCatalogInstanceUid";
+                } "ImagingCatalogInstanceId";
+                cda_instance.code as cda_instance_code then {
+                    cda_instance_code where (code.exists()) ->
+                        fhir_instance.sopClass = create('Coding') as fhir_instance_sopClass,
+                        fhir_instance_sopClass.system = 'urn:ietf:rfc:3986',
+                        fhir_instance_sopClass.code = ('urn:oid:' + cda_instance_code.code)
+                        "ImagingCatalogInstanceSopClass";
+                } "ImagingCatalogInstanceCode";
+            } "ImagingCatalogInstance";
+    } "ImagingCatalogSeriesRelationship";
 }
 
 // _________________________ Entry Level Templates: Radiation Dose _________________________
